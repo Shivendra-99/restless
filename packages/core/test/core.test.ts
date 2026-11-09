@@ -1,8 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addFolder,
   buildUrl,
+  collectionFolders,
+  deleteFolder,
+  emptyWorkspace,
   exampleFromSchema,
+  exportPostmanCollection,
+  extractCapture,
+  formatPath,
+  getAtPath,
   importPostmanCollection,
+  importPostmanGlobals,
+  normalizeWorkspace,
+  parsePath,
+  renameFolder,
+  resolveVariables,
+  runCaptures,
+  scriptToCaptures,
+  setGlobal,
+  suggestVariableName,
+  usedVariables,
+  variableMap,
+  type HttpResponse,
   interpolate,
   lintTools,
   missingRequired,
@@ -111,7 +131,10 @@ describe('Postman import', () => {
     const res = importPostmanCollection(col);
     expect(res.requests).toHaveLength(2);
     const [list, create] = res.requests;
-    expect(list.folder).toBe('Shop/Orders');
+    expect(res.collection.name).toBe('Shop');
+    expect(res.collection.folders).toEqual(['Orders']);
+    expect(list.collectionId).toBe(res.collection.id);
+    expect(list.folder).toBe('Orders');
     expect(list.url).toBe('{{base}}/orders');
     expect(list.params).toEqual([{ key: 'status', value: 'open', enabled: true }]);
     expect(list.headers[0].enabled).toBe(false);
@@ -119,6 +142,139 @@ describe('Postman import', () => {
     expect(create.auth).toEqual({ type: 'none' });
     expect(create.body.mode).toBe('json');
     expect(res.environment?.variables[0]).toMatchObject({ key: 'base', value: 'https://shop.test' });
+  });
+});
+
+const res = (body: unknown, status = 200, headers: [string, string][] = []): HttpResponse => ({
+  status,
+  statusText: '',
+  headers,
+  body: typeof body === 'string' ? body : JSON.stringify(body),
+  size: 0,
+  timings: { total: 1 },
+  url: 'http://x',
+});
+
+describe('collections and folders', () => {
+  it('moves old requests without a collection into "My collection"', () => {
+    const ws = normalizeWorkspace({ requests: [newRequest({ name: 'a', folder: ' x / y ' })] } as never);
+    expect(ws.collections).toHaveLength(1);
+    expect(ws.collections[0].name).toBe('My collection');
+    expect(ws.requests[0].collectionId).toBe(ws.collections[0].id);
+    expect(ws.requests[0].folder).toBe('x/y');
+    expect(ws.globals).toEqual([]);
+  });
+  it('adds, renames and deletes folders with their requests', () => {
+    let ws = normalizeWorkspace({ ...emptyWorkspace(), collections: [{ id: 'c', name: 'API', folders: [] }] });
+    ws = addFolder(ws, 'c', '', 'Users');
+    ws = addFolder(ws, 'c', 'Users', 'Admin');
+    ws.requests.push(newRequest({ collectionId: 'c', folder: 'Users/Admin', name: 'r1' }), newRequest({ collectionId: 'c', folder: '', name: 'r2' }));
+    expect(collectionFolders(ws.collections[0], ws.requests)).toEqual(['Users', 'Users/Admin']);
+    ws = renameFolder(ws, 'c', 'Users', 'People');
+    expect(ws.requests[0].folder).toBe('People/Admin');
+    expect(collectionFolders(ws.collections[0], ws.requests)).toEqual(['People', 'People/Admin']);
+    ws = deleteFolder(ws, 'c', 'People');
+    expect(ws.requests.map((r) => r.name)).toEqual(['r2']);
+    expect(ws.collections[0].folders).toEqual([]);
+  });
+});
+
+describe('global variables and captures', () => {
+  it('environment overrides globals; usedVariables finds names', () => {
+    const ws = normalizeWorkspace({
+      ...emptyWorkspace(),
+      globals: [{ key: 'token', value: 'g', enabled: true }, { key: 'base', value: 'http://g', enabled: true }],
+      environments: [{ id: 'e', name: 'Local', variables: [{ key: 'base', value: 'http://local', enabled: true }] }],
+      activeEnvironmentId: 'e',
+    });
+    expect(variableMap(ws)).toEqual({ token: 'g', base: 'http://local' });
+    expect(resolveVariables(ws).get('base')?.scope).toBe('environment');
+    const item = newRequest({ url: '{{base}}/x', auth: { type: 'bearer', token: '{{token}}' }, headers: [{ key: 'X', value: '{{$uuid}} {{trace}}', enabled: true }] });
+    expect(usedVariables(item)).toEqual(['base', 'trace', 'token']);
+  });
+  it('setGlobal creates secret globals and updates existing ones', () => {
+    let g = setGlobal([], 'access token', 'a');
+    expect(g).toEqual([{ key: 'access_token', value: 'a', enabled: true, secret: true }]);
+    g = setGlobal([{ key: 'access_token', value: 'old', enabled: false, secret: false }], 'access_token', 'new');
+    expect(g).toEqual([{ key: 'access_token', value: 'new', enabled: true, secret: false }]);
+  });
+  it('JSON paths round-trip', () => {
+    const segs = ['data', 'items', 0, 'weird key', 'id-x'];
+    const p = formatPath(segs);
+    expect(p).toBe('data.items[0]["weird key"].id-x');
+    expect(parsePath(p)).toEqual(segs);
+    expect(parsePath('$.a[1]')).toEqual(['a', 1]);
+    expect(getAtPath({ a: [{ b: 2 }] }, ['a', 0, 'b'])).toBe(2);
+    expect(suggestVariableName(['data', 'access_token'])).toBe('access_token');
+    expect(suggestVariableName(['items', 0])).toBe('items');
+  });
+  it('extracts from body and headers', () => {
+    const r = res({ data: { access_token: 'abc', expires: 3600, user: { id: 7 } } }, 200, [['X-Request-Id', 'rq1']]);
+    expect(extractCapture({ id: '1', variable: 't', from: 'body', path: 'data.access_token' }, r)).toEqual({ ok: true, value: 'abc' });
+    expect(extractCapture({ id: '1', variable: 't', from: 'body', path: 'data.user' }, r)).toEqual({ ok: true, value: '{"id":7}' });
+    expect(extractCapture({ id: '1', variable: 't', from: 'header', path: 'x-request-id' }, r)).toEqual({ ok: true, value: 'rq1' });
+    expect(extractCapture({ id: '1', variable: 't', from: 'body', path: 'nope' }, r).ok).toBe(false);
+  });
+  it('runCaptures updates globals only on 2xx', () => {
+    const item = newRequest({ captures: [{ id: '1', variable: 'access_token', from: 'body', path: 'access_token' }] });
+    const ok = runCaptures(item, res({ access_token: 'T1' }), [{ key: 'access_token', value: 'T0', enabled: true, secret: true }]);
+    expect(ok.updated).toEqual([{ variable: 'access_token', value: 'T1' }]);
+    expect(ok.globals[0].value).toBe('T1');
+    const bad = runCaptures(item, res({ error: 'expired' }, 401), ok.globals);
+    expect(bad.updated).toEqual([]);
+    expect(bad.globals[0].value).toBe('T1');
+    expect(bad.missed[0].reason).toMatch(/401/);
+  });
+});
+
+describe('Postman scripts and export', () => {
+  it('converts common token-saving test scripts into captures', () => {
+    const warnings: string[] = [];
+    const script = [
+      'var jsonData = pm.response.json();',
+      'pm.environment.set("token", jsonData.data.access_token);',
+      "pm.globals.set('refresh', pm.response.json().refresh_token);",
+      'postman.setEnvironmentVariable("rid", pm.response.headers.get("X-Request-Id"));',
+      'pm.test("ok", () => pm.response.to.have.status(200));',
+      'pm.environment.set("calc", Date.now() + 5);',
+    ].join('\n');
+    const caps = scriptToCaptures(script, 'Login', warnings);
+    expect(caps.map(({ variable, from, path }) => ({ variable, from, path }))).toEqual([
+      { variable: 'token', from: 'body', path: 'data.access_token' },
+      { variable: 'refresh', from: 'body', path: 'refresh_token' },
+      { variable: 'rid', from: 'header', path: 'X-Request-Id' },
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/calc/);
+  });
+  it('exports v2.1 that imports back the same, including captures', () => {
+    const c = { id: 'c1', name: 'Auth API', folders: ['Empty'] };
+    const login = newRequest({
+      collectionId: 'c1',
+      folder: 'Auth',
+      name: 'Login',
+      method: 'POST',
+      url: '{{base}}/login',
+      params: [{ key: 'v', value: '2', enabled: true }],
+      body: { mode: 'json', text: '{"user":"a"}', form: [] },
+      captures: [{ id: 'x', variable: 'access_token', from: 'body', path: 'data["access-token"]' }],
+    });
+    const me = newRequest({ collectionId: 'c1', name: 'Me', url: '{{base}}/me', auth: { type: 'bearer', token: '{{access_token}}' } });
+    const json = JSON.parse(JSON.stringify(exportPostmanCollection(c, [login, me, newRequest({ collectionId: 'other' })])));
+    expect(json.info.schema).toMatch(/v2.1.0/);
+    expect(json.item.map((i: { name: string }) => i.name)).toEqual(['Auth', 'Empty', 'Me']);
+    const back = importPostmanCollection(json);
+    expect(back.warnings).toEqual([]);
+    expect(back.collection.folders).toEqual(['Auth', 'Empty']);
+    const [l, m] = back.requests;
+    expect(l).toMatchObject({ name: 'Login', folder: 'Auth', method: 'POST', url: '{{base}}/login', params: [{ key: 'v', value: '2', enabled: true }] });
+    expect(l.body).toEqual(login.body);
+    expect(l.captures?.map(({ variable, from }) => ({ variable, from }))).toEqual([{ variable: 'access_token', from: 'body' }]);
+    expect(parsePath(l.captures![0].path)).toEqual(['data', 'access-token']);
+    expect(m.auth).toEqual({ type: 'bearer', token: '{{access_token}}' });
+  });
+  it('imports Postman globals', () => {
+    expect(importPostmanGlobals({ _postman_variable_scope: 'globals', values: [{ key: 'a', value: '1', enabled: true }] })).toEqual([{ key: 'a', value: '1', enabled: true, secret: false }]);
   });
 });
 

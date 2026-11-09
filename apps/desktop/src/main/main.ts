@@ -12,6 +12,8 @@ fixPathFromLoginShell();
 let win: BrowserWindow | null = null;
 let store: FileWorkspaceStore;
 let httpAbort: AbortController | null = null;
+let saving: Promise<void> = Promise.resolve();
+let quitting = false;
 const configFile = () => path.join(app.getPath('userData'), 'config.json');
 
 const secretStore: SecretStore = {
@@ -93,8 +95,23 @@ function registerIpc() {
   ipcMain.handle('mcp:disconnect', (_e, id: string) => mcp.disconnect(id));
 
   ipcMain.handle('ws:load', () => store.load());
-  ipcMain.handle('ws:save', (_e, ws: Workspace) => store.save(ws));
+  ipcMain.handle('ws:save', (_e, ws: Workspace) => {
+    // One write at a time, and remembered so quitting can wait for it.
+    const run = saving.then(() => store.save(ws));
+    saving = run.catch(() => {});
+    return run;
+  });
   ipcMain.handle('ws:location', () => store.root);
+  ipcMain.handle('file:save', async (_e, suggestedName: string, text: string) => {
+    const res = await dialog.showSaveDialog(win!, {
+      title: 'Export collection',
+      defaultPath: path.join(app.getPath('downloads'), path.basename(String(suggestedName))),
+      filters: [{ name: 'Postman collection', extensions: ['json'] }],
+    });
+    if (res.canceled || !res.filePath) return null;
+    await fs.writeFile(res.filePath, String(text), 'utf8');
+    return res.filePath;
+  });
   ipcMain.handle('ws:choose', async () => {
     const res = await dialog.showOpenDialog(win!, {
       title: 'Open or create a Restless workspace folder',
@@ -122,6 +139,15 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
-  void mcp.closeAll();
+app.on('before-quit', (e) => {
+  if (quitting) return;
+  e.preventDefault();
+  quitting = true;
+  // Close windows first: each page flushes its pending save while unloading. Then wait for those
+  // writes (and stop MCP servers) before exiting, so the last edit is never lost.
+  const closing = BrowserWindow.getAllWindows().map((w) => new Promise<void>((done) => (w.once('closed', () => done()), w.close())));
+  void Promise.all(closing)
+    .then(() => new Promise((r) => setTimeout(r, 50)))
+    .then(() => Promise.allSettled([saving, mcp.closeAll()]))
+    .then(() => app.quit());
 });

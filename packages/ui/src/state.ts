@@ -1,21 +1,31 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Bridge, Workspace } from '@restless/core';
-import { debounce, errorText } from './util';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { normalizeWorkspace, type Bridge, type Workspace } from '@restless/core';
+import { errorText } from './util';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
-/** Loads the workspace once and auto-saves every change (debounced). No "unsaved" state to lose. */
+const SAVE_DELAY_MS = 300;
+
+/**
+ * Loads the workspace once and auto-saves every change. There is no "unsaved" state to lose:
+ * saves are batched for a moment, written one after another (never overlapping), and flushed
+ * right away when the window is hidden, reloaded or closed.
+ */
 export function useWorkspace(bridge: Bridge) {
   const [ws, setWs] = useState<Workspace | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [location, setLocation] = useState('');
-  const latest = useRef<Workspace | null>(null);
+  const dirty = useRef(false);
+  const pending = useRef<Workspace | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const writing = useRef<Promise<void>>(Promise.resolve());
 
   const reload = useCallback(async () => {
     try {
-      const w = await bridge.storage.load();
-      latest.current = w;
+      // Older saves have no collections or globals; normalize fills them in and moves stray requests into a collection.
+      const w = normalizeWorkspace(await bridge.storage.load());
+      dirty.current = false;
       setWs(w);
       setLocation(await bridge.storage.location());
       setLoadError(null);
@@ -28,33 +38,49 @@ export function useWorkspace(bridge: Bridge) {
     void reload();
   }, [reload]);
 
-  const save = useMemo(
-    () =>
-      debounce(async (w: Workspace) => {
-        setSaveState('saving');
-        try {
-          await bridge.storage.save(w);
-          setSaveState('saved');
-        } catch (e) {
+  const flush = useCallback(() => {
+    clearTimeout(timer.current);
+    const w = pending.current;
+    if (!w) return;
+    pending.current = null;
+    setSaveState('saving');
+    // Chained, so an older snapshot can never finish after a newer one.
+    writing.current = writing.current
+      .then(() => bridge.storage.save(w))
+      .then(
+        () => setSaveState(pending.current ? 'saving' : 'saved'),
+        (e) => {
           console.error('save failed', e);
           setSaveState('error');
-        }
-      }, 400),
-    [bridge],
-  );
+        },
+      );
+  }, [bridge]);
 
-  const update = useCallback(
-    (fn: (w: Workspace) => Workspace) => {
-      setWs((prev) => {
-        if (!prev) return prev;
-        const next = fn(prev);
-        latest.current = next;
-        save(next);
-        return next;
-      });
-    },
-    [save],
-  );
+  const update = useCallback((fn: (w: Workspace) => Workspace) => {
+    dirty.current = true;
+    setWs((prev) => (prev ? fn(prev) : prev));
+  }, []);
+
+  useEffect(() => {
+    if (!ws || !dirty.current) return;
+    dirty.current = false;
+    pending.current = ws;
+    clearTimeout(timer.current);
+    timer.current = setTimeout(flush, SAVE_DELAY_MS);
+  }, [ws, flush]);
+
+  useEffect(() => {
+    const now = () => flush();
+    const onVisibility = () => document.visibilityState === 'hidden' && flush();
+    window.addEventListener('pagehide', now);
+    window.addEventListener('beforeunload', now);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', now);
+      window.removeEventListener('beforeunload', now);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [flush]);
 
   return { ws, update, saveState, loadError, location, reload };
 }

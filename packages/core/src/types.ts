@@ -24,10 +24,29 @@ export type Auth =
   | { type: 'basic'; username: string; password: string }
   | { type: 'apikey'; key: string; value: string; in: 'header' | 'query' };
 
+/** After a request is sent, copy a value from its response into a global variable. */
+export interface Capture {
+  id: string;
+  /** Global variable name, used as {{variable}} anywhere. */
+  variable: string;
+  from: 'body' | 'header';
+  /** For body: a JSON path like `access_token`, `data.token` or `items[0].id` ('' = whole body). For header: the header name. */
+  path: string;
+}
+
+export interface Collection {
+  id: string;
+  name: string;
+  /** Folder paths inside the collection, e.g. "Users/Admin". Kept so empty folders survive. */
+  folders: string[];
+}
+
 export interface RequestItem {
   id: string;
   name: string;
-  /** Folder path inside the workspace, e.g. "users/admin". Empty = root. */
+  /** The collection this request is saved in. */
+  collectionId: string;
+  /** Folder path inside the collection, e.g. "users/admin". Empty = top level of the collection. */
   folder: string;
   method: HttpMethod;
   url: string;
@@ -35,6 +54,8 @@ export interface RequestItem {
   headers: KeyValue[];
   body: RequestBody;
   auth: Auth;
+  /** Values to copy into global variables after every send (e.g. an access token). */
+  captures?: Capture[];
   updatedAt?: number;
 }
 
@@ -123,7 +144,10 @@ export interface McpLogEntry {
 
 export interface Workspace {
   name: string;
+  collections: Collection[];
   requests: RequestItem[];
+  /** Variables available in every request. An active environment's variable with the same name wins. */
+  globals: EnvVar[];
   environments: Environment[];
   activeEnvironmentId: string | null;
   mcpServers: McpServerConfig[];
@@ -131,7 +155,7 @@ export interface Workspace {
 }
 
 export function emptyWorkspace(name = 'My workspace'): Workspace {
-  return { name, requests: [], environments: [], activeEnvironmentId: null, mcpServers: [], history: [] };
+  return { name, collections: [], requests: [], globals: [], environments: [], activeEnvironmentId: null, mcpServers: [], history: [] };
 }
 
 export function newId(): string {
@@ -142,6 +166,7 @@ export function newRequest(partial: Partial<RequestItem> = {}): RequestItem {
   return {
     id: newId(),
     name: 'New request',
+    collectionId: '',
     folder: '',
     method: 'GET',
     url: '',

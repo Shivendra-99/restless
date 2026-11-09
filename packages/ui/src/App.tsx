@@ -1,10 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { envToVars, newId, newRequest, resolveRequest, type Bridge, type HistoryEntry, type HttpResponse, type RequestItem, type ResolvedRequest, type Workspace } from '@restless/core';
+import {
+  collectionFolders,
+  DEFAULT_COLLECTION_NAME,
+  exportPostmanCollection,
+  newCollection,
+  newId,
+  newRequest,
+  resolveRequest,
+  resolveVariables,
+  runCaptures,
+  setGlobal,
+  variableMap,
+  type Bridge,
+  type Capture,
+  type HistoryEntry,
+  type HttpResponse,
+  type RequestItem,
+  type ResolvedRequest,
+  type Workspace,
+} from '@restless/core';
 import { useWorkspace } from './state';
 import { Sidebar } from './components/Sidebar';
-import { RequestEditor } from './components/RequestEditor';
+import { RequestEditor, type Location } from './components/RequestEditor';
 import { ResponseView } from './components/ResponseView';
-import { EnvEditor } from './components/EnvEditor';
+import { VariablesDialog, type VariablesTarget } from './components/VariablesDialog';
 import { ImportDialog } from './components/ImportDialog';
 import { McpView } from './mcp/McpView';
 import { errorText } from './util';
@@ -13,6 +32,11 @@ type Mode = 'http' | 'mcp';
 interface Exchange {
   response: HttpResponse | null;
   sent: ResolvedRequest | null;
+}
+interface Toast {
+  text: string;
+  action?: { label: string; run: () => void };
+  tone?: 'warn';
 }
 
 function BrandMark() {
@@ -24,21 +48,40 @@ function BrandMark() {
   );
 }
 
+function downloadText(name: string, text: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Make sure there is a collection to put a new request in; returns the workspace and the collection id. */
+function withCollection(w: Workspace, preferred?: string): [Workspace, string] {
+  if (preferred && w.collections.some((c) => c.id === preferred)) return [w, preferred];
+  if (w.collections[0]) return [w, w.collections[0].id];
+  const c = newCollection(DEFAULT_COLLECTION_NAME, []);
+  return [{ ...w, collections: [c] }, c.id];
+}
+
 export function App({ bridge }: { bridge: Bridge }) {
   const { ws, update, saveState, loadError, location, reload } = useWorkspace(bridge);
   const [mode, setMode] = useState<Mode>('http');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [exchanges, setExchanges] = useState<Record<string, Exchange>>({});
   const [sendingId, setSendingId] = useState<string | null>(null);
-  const [envOpen, setEnvOpen] = useState(false);
+  const [varsOpen, setVarsOpen] = useState<VariablesTarget | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [toast, setToast] = useState<Toast | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const flash = useCallback((text: string) => {
-    setNotice(text);
-    clearTimeout(noticeTimer.current);
-    noticeTimer.current = setTimeout(() => setNotice(null), 5000);
+  const flash = useCallback((t: Toast | string) => {
+    setToast(typeof t === 'string' ? { text: t } : t);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 7000);
   }, []);
 
   useEffect(() => {
@@ -46,35 +89,54 @@ export function App({ bridge }: { bridge: Bridge }) {
   }, [ws, activeId]);
 
   const active = ws?.requests.find((r) => r.id === activeId) ?? null;
-  const env = ws?.environments.find((e) => e.id === ws.activeEnvironmentId) ?? null;
-  const unresolved = useMemo(() => (active ? resolveRequest(active, envToVars(env)).missing : []), [active, env]);
+  const vars = useMemo(() => (ws ? resolveVariables(ws) : new Map()), [ws]);
+  const globalNames = useMemo(() => new Set((ws?.globals ?? []).map((g) => g.key)), [ws?.globals]);
+  const locations = useMemo<Location[]>(
+    () =>
+      (ws?.collections ?? []).flatMap((c) => [
+        { collectionId: c.id, folder: '', label: c.name },
+        ...collectionFolders(c, ws!.requests).map((f) => ({ collectionId: c.id, folder: f, label: `${c.name} / ${f.split('/').join(' / ')}` })),
+      ]),
+    [ws],
+  );
 
   const patchRequest = (item: RequestItem) => update((w) => ({ ...w, requests: w.requests.map((r) => (r.id === item.id ? { ...item, updatedAt: Date.now() } : r)) }));
 
-  const addRequest = (partial: Partial<RequestItem> = {}) => {
-    const r = newRequest(partial);
-    update((w) => ({ ...w, requests: [...w.requests, r] }));
-    setActiveId(r.id);
+  /** New request in the given place; by default next to the request that is open. */
+  const addRequest = (collectionId?: string, folder?: string, partial: Partial<RequestItem> = {}) => {
+    const id = newId();
+    const place = collectionId ?? active?.collectionId;
+    const inFolder = folder ?? (collectionId ? '' : (active?.folder ?? ''));
+    update((w) => {
+      const [w2, cid] = withCollection(w, place);
+      return { ...w2, requests: [...w2.requests, newRequest({ ...partial, id, collectionId: cid, folder: cid === place ? inFolder : '' })] };
+    });
+    setActiveId(id);
     setMode('http');
-    return r;
   };
 
   const send = useCallback(async () => {
     if (!ws || !active || sendingId) return;
-    const { request } = resolveRequest(active, envToVars(env));
+    const { request } = resolveRequest(active, variableMap(ws));
     setSendingId(active.id);
-    const id = active.id;
+    const item = active;
     try {
       const response = await bridge.sendHttp(request);
-      setExchanges((p) => ({ ...p, [id]: { response, sent: request } }));
-      const h: HistoryEntry = { id: newId(), at: Date.now(), method: request.method, url: request.url, status: response.status, durationMs: response.timings.total, requestId: id };
-      update((w) => ({ ...w, history: [h, ...w.history].slice(0, 200) }));
+      setExchanges((p) => ({ ...p, [item.id]: { response, sent: request } }));
+      const h: HistoryEntry = { id: newId(), at: Date.now(), method: request.method, url: request.url, status: response.status, durationMs: response.timings.total, requestId: item.id };
+      const preview = runCaptures(item, response, ws.globals);
+      update((w) => ({ ...w, history: [h, ...w.history].slice(0, 200), globals: runCaptures(item, response, w.globals).globals }));
+      if (preview.updated.length) {
+        flash({ text: `Updated ${preview.updated.map((u) => `{{${u.variable}}}`).join(', ')} from the response`, action: { label: 'View', run: () => setVarsOpen({ scope: 'global', focus: preview.updated[0].variable }) } });
+      } else if (preview.missed.length && response.status >= 200 && response.status < 300) {
+        flash({ tone: 'warn', text: `Could not update ${preview.missed.map((m) => `{{${m.variable}}}`).join(', ')}: ${preview.missed[0].reason}` });
+      }
     } catch (e) {
-      setExchanges((p) => ({ ...p, [id]: { sent: request, response: { status: 0, statusText: '', headers: [], body: '', size: 0, timings: { total: 0 }, url: request.url, error: errorText(e) } } }));
+      setExchanges((p) => ({ ...p, [item.id]: { sent: request, response: { status: 0, statusText: '', headers: [], body: '', size: 0, timings: { total: 0 }, url: request.url, error: errorText(e) } } }));
     } finally {
       setSendingId(null);
     }
-  }, [ws, active, env, sendingId, bridge, update]);
+  }, [ws, active, sendingId, bridge, update, flash]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -86,6 +148,24 @@ export function App({ bridge }: { bridge: Bridge }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [mode, send]);
+
+  const exportCollection = async (collectionId: string) => {
+    const c = ws?.collections.find((x) => x.id === collectionId);
+    if (!ws || !c) return;
+    const text = JSON.stringify(exportPostmanCollection(c, ws.requests), null, 2);
+    const name = `${c.name.replace(/[^\w.-]+/g, '_')}.postman_collection.json`;
+    try {
+      if (bridge.saveFile) {
+        const where = await bridge.saveFile(name, text);
+        if (where) flash(`Exported ${c.name} to ${where}`);
+      } else {
+        downloadText(name, text);
+        flash(`Exported ${c.name} as ${name}`);
+      }
+    } catch (e) {
+      flash({ tone: 'warn', text: `Could not export: ${errorText(e)}` });
+    }
+  };
 
   if (loadError) {
     return (
@@ -141,8 +221,9 @@ export function App({ bridge }: { bridge: Bridge }) {
             <select
               className="select"
               aria-label="Active environment"
+              title="Environment in use"
               value={ws.activeEnvironmentId ?? ''}
-              onChange={(e) => update((w: Workspace) => ({ ...w, activeEnvironmentId: e.target.value || null }))}
+              onChange={(e) => update((w) => ({ ...w, activeEnvironmentId: e.target.value || null }))}
             >
               <option value="">No environment</option>
               {ws.environments.map((e) => (
@@ -151,8 +232,8 @@ export function App({ bridge }: { bridge: Bridge }) {
                 </option>
               ))}
             </select>
-            <button className="btn ghost small" onClick={() => setEnvOpen(true)}>
-              Environments
+            <button className="btn small" onClick={() => setVarsOpen({ scope: 'global' })}>
+              Variables{ws.globals.length ? <span className="count">{ws.globals.length}</span> : null}
             </button>
           </>
         )}
@@ -161,28 +242,17 @@ export function App({ bridge }: { bridge: Bridge }) {
       <div className="body" style={mode === 'mcp' ? { gridTemplateColumns: '1fr' } : undefined}>
         {mode === 'http' && (
           <Sidebar
-            requests={ws.requests}
-            history={ws.history}
+            ws={ws}
+            update={update}
             activeId={activeId}
             onSelect={setActiveId}
-            onNew={() => addRequest()}
+            onNewRequest={(cid, folder) => addRequest(cid, folder)}
             onImport={() => setImportOpen(true)}
-            onRename={(id, name) => update((w) => ({ ...w, requests: w.requests.map((r) => (r.id === id ? { ...r, name } : r)) }))}
-            onDuplicate={(id) => {
-              const src = ws.requests.find((r) => r.id === id);
-              if (src) addRequest({ ...structuredClone(src), id: newId(), name: `${src.name} copy` });
-            }}
-            onDelete={(id) => {
-              const r = ws.requests.find((x) => x.id === id);
-              if (!r || !window.confirm(`Delete "${r.name}"? This removes its file from the workspace folder.`)) return;
-              update((w) => ({ ...w, requests: w.requests.filter((x) => x.id !== id) }));
-              if (activeId === id) setActiveId(null);
-            }}
+            onExport={(cid) => void exportCollection(cid)}
             onOpenHistory={(h) => {
               if (h.requestId && ws.requests.some((r) => r.id === h.requestId)) setActiveId(h.requestId);
-              else addRequest({ method: h.method, url: h.url, name: `${h.method} ${h.url}` });
+              else addRequest(undefined, undefined, { method: h.method, url: h.url, name: `${h.method} ${h.url}` });
             }}
-            onClearHistory={() => update((w) => ({ ...w, history: [] }))}
           />
         )}
         <main className="main">
@@ -197,15 +267,46 @@ export function App({ bridge }: { bridge: Bridge }) {
                 onSend={() => void send()}
                 sending={sendingId === active.id}
                 onCancel={bridge.cancelHttp}
-                unresolved={unresolved}
+                vars={vars}
+                onOpenVariable={(name) => {
+                  const v = vars.get(name);
+                  if (v?.scope === 'environment' && ws.activeEnvironmentId) {
+                    setVarsOpen({ scope: 'environment', id: ws.activeEnvironmentId, focus: name });
+                    return;
+                  }
+                  // Not set yet: add an empty global row for it so the dialog opens ready to type the value.
+                  if (!v) update((w) => (w.globals.some((g) => g.key === name) ? w : { ...w, globals: [...w.globals, { key: name, value: '', enabled: true }] }));
+                  setVarsOpen({ scope: 'global', focus: name });
+                }}
+                locations={locations}
                 onNotice={flash}
               />
-              <ResponseView key={`r-${active.id}`} response={exchange?.response ?? null} sent={exchange?.sent ?? null} sending={sendingId === active.id} />
+              <ResponseView
+                key={`r-${active.id}`}
+                response={exchange?.response ?? null}
+                sent={exchange?.sent ?? null}
+                sending={sendingId === active.id}
+                globalNames={globalNames}
+                onSaveVariable={(pick, name, keep) => {
+                  const cap: Capture = { id: newId(), variable: name, from: pick.from, path: pick.path };
+                  update((w) => ({
+                    ...w,
+                    globals: setGlobal(w.globals, name, pick.value),
+                    requests: keep
+                      ? w.requests.map((r) => (r.id === active.id ? { ...r, captures: [...(r.captures ?? []).filter((c) => c.variable !== name), cap] } : r))
+                      : w.requests,
+                  }));
+                  flash({
+                    text: `Saved {{${name}}}. Use it in any request${keep ? '; it updates each time this request is sent' : ''}.`,
+                    action: { label: 'View', run: () => setVarsOpen({ scope: 'global', focus: name }) },
+                  });
+                }}
+              />
             </div>
           ) : (
             <div className="empty">
               <h2>Start with a request</h2>
-              <p>Everything you create is stored as plain files on this machine. No account, no sync, nothing leaves unless you send it.</p>
+              <p>Requests live in collections. Everything is stored on this machine: no account, no sync, nothing leaves unless you send it.</p>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="btn primary" onClick={() => addRequest()}>
                   New request
@@ -219,39 +320,38 @@ export function App({ bridge }: { bridge: Bridge }) {
         </main>
       </div>
 
-      {notice && (
-        <div className="toast" role="status">
-          {notice}
+      {toast && (
+        <div className={`toast ${toast.tone ?? ''}`} role="status">
+          <span>{toast.text}</span>
+          {toast.action && (
+            <button
+              className="btn ghost small"
+              onClick={() => {
+                toast.action!.run();
+                setToast(null);
+              }}
+            >
+              {toast.action.label}
+            </button>
+          )}
         </div>
       )}
-      {envOpen && (
-        <EnvEditor
-          environments={ws.environments}
-          activeId={ws.activeEnvironmentId}
-          onChange={(environments) =>
-            update((w) => ({
-              ...w,
-              environments,
-              activeEnvironmentId: environments.some((e) => e.id === w.activeEnvironmentId) ? w.activeEnvironmentId : (environments[0]?.id ?? null),
-            }))
-          }
-          onClose={() => setEnvOpen(false)}
-        />
-      )}
+      {varsOpen && <VariablesDialog ws={ws} update={update} initial={varsOpen} onOpenRequest={setActiveId} onClose={() => setVarsOpen(null)} />}
       {importOpen && (
         <ImportDialog
           onClose={() => setImportOpen(false)}
-          onImport={(requests, environments, summary) => {
-            update((w) => ({
-              ...w,
-              requests: [...w.requests, ...requests],
-              environments: [...w.environments, ...environments],
-              activeEnvironmentId: w.activeEnvironmentId ?? environments[0]?.id ?? null,
-            }));
-            if (requests[0]) setActiveId(requests[0].id);
-            setImportOpen(false);
+          onImport={(res) => {
+            const firstId = res.requests[0]?.id;
+            update((w) => {
+              let next = { ...w, environments: [...w.environments, ...res.environments], activeEnvironmentId: w.activeEnvironmentId ?? res.environments[0]?.id ?? null };
+              for (const g of res.globals) next = { ...next, globals: setGlobal(next.globals, g.key, g.value).map((x) => (x.key === g.key ? { ...x, enabled: g.enabled, secret: g.secret || x.secret } : x)) };
+              if (res.collection) return { ...next, collections: [...next.collections, res.collection], requests: [...next.requests, ...res.requests] };
+              const [w2, cid] = withCollection(next, active?.collectionId);
+              return { ...w2, requests: [...w2.requests, ...res.requests.map((r) => ({ ...r, collectionId: cid, folder: cid === active?.collectionId ? active.folder : '' }))] };
+            });
+            if (firstId) setActiveId(firstId);
             setMode('http');
-            flash(summary);
+            flash(res.summary);
           }}
         />
       )}

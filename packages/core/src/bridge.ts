@@ -44,4 +44,7 @@ export interface Bridge {
 
   /** Desktop only: open a file picker and return its text. */
   pickFile?(accept: string[]): Promise<{ name: string; text: string } | null>;
+
+  /** Desktop: ask where to save a file and write it. Returns the saved path, or null if cancelled. Without it the UI downloads the file. */
+  saveFile?(suggestedName: string, text: string): Promise<string | null>;
 }

@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { newId, newRequest, resolveRequest, type McpLogEntry } from '@restless/core';
+import { newId, newRequest, normalizeWorkspace, resolveRequest, type McpLogEntry } from '@restless/core';
 import { sendHttp } from '../src/main/http-engine';
 import { McpManager } from '../src/main/mcp-manager';
 import { FileWorkspaceStore } from '../src/main/storage';
@@ -120,30 +120,62 @@ try {
     await mgr.disconnect(info.sessionId);
   });
 
-  await check('File workspace: save, reload, secrets kept out of the folder, stale files removed', async () => {
+  const secrets = { available: false, encrypt: (s: string) => `plain:${Buffer.from(s).toString('base64')}`, decrypt: (s: string) => Buffer.from(s.slice(6), 'base64').toString() };
+  const listFiles = async (dir: string) => (await fs.readdir(dir, { recursive: true })).map((f) => String(f).split(path.sep).join('/'));
+
+  await check('File workspace: collections, folders, globals and captures persist; secrets stay out of the folder', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'restless-ws-'));
     const data = await fs.mkdtemp(path.join(os.tmpdir(), 'restless-data-'));
-    const secrets = { available: false, encrypt: (s: string) => `plain:${Buffer.from(s).toString('base64')}`, decrypt: (s: string) => Buffer.from(s.slice(6), 'base64').toString() };
     const store = new FileWorkspaceStore(dir, data, secrets);
-    const ws = await store.load();
-    const envId = newId();
-    const r1 = newRequest({ name: 'List users', folder: 'Shop/../../escape', url: 'http://x/users' });
-    ws.requests.push(r1);
-    ws.environments.push({ id: envId, name: 'Local', variables: [{ key: 'token', value: 'TOPSECRET', enabled: true, secret: true }, { key: 'base', value: 'http://x', enabled: true }] });
-    ws.activeEnvironmentId = envId;
+    let ws = normalizeWorkspace(await store.load());
+    const cid = newId();
+    ws.collections.push({ id: cid, name: 'Auth API', folders: ['Users/Admin', 'Empty'] });
+    const login = newRequest({ collectionId: cid, name: 'Login', folder: '', method: 'POST', url: '{{base}}/login', captures: [{ id: 'c1', variable: 'access_token', from: 'body', path: 'access_token' }] });
+    const list = newRequest({ collectionId: cid, name: 'List users', folder: 'Users/../../escape', url: '{{base}}/users' });
+    ws.requests.push(login, list);
+    ws.globals = [{ key: 'access_token', value: 'TOPSECRET', enabled: true, secret: true }, { key: 'base', value: 'http://x', enabled: true }];
     await store.save(ws);
-    const files = (await fs.readdir(dir, { recursive: true })).map(String);
-    assert.ok(files.some((f) => f.includes(`list-users--${r1.id.slice(0, 8)}.yaml`)));
-    assert.ok(!files.some((f) => f.includes('escape') && !f.startsWith('requests')), 'folder traversal blocked');
-    const envFile = files.find((f) => f.startsWith('environments') && f.endsWith('.yaml'))!;
-    assert.ok(!(await fs.readFile(path.join(dir, envFile), 'utf8')).includes('TOPSECRET'), 'secret not in workspace');
-    const back = await new FileWorkspaceStore(dir, data, secrets).load();
-    assert.equal(back.requests[0].name, 'List users');
-    assert.equal(back.environments[0].variables.find((v) => v.key === 'token')?.value, 'TOPSECRET');
-    back.requests[0].name = 'Renamed';
-    await store.save(back);
-    const after = (await fs.readdir(path.join(dir, 'requests'), { recursive: true })).map(String);
-    assert.equal(after.filter((f) => f.endsWith('.yaml')).length, 1, 'old file removed after rename');
+    const files = await listFiles(dir);
+    const cdir = `collections/auth-api--${cid.slice(0, 8)}`;
+    assert.ok(files.includes(`${cdir}/collection.yaml`), 'collection.yaml written');
+    assert.ok(files.includes(`${cdir}/login--${login.id.slice(0, 8)}.yaml`), 'request at collection top level');
+    assert.ok(files.some((f) => f.startsWith(`${cdir}/Users/escape/list-users`)), 'folder traversal blocked');
+    const globalsYaml = await fs.readFile(path.join(dir, 'globals.yaml'), 'utf8');
+    assert.ok(globalsYaml.includes('base') && !globalsYaml.includes('TOPSECRET'), 'locked global kept out of the workspace');
+
+    ws = normalizeWorkspace(await new FileWorkspaceStore(dir, data, secrets).load());
+    assert.deepEqual(ws.collections.map((c) => [c.name, c.folders]), [['Auth API', ['Users/Admin', 'Empty']]]);
+    assert.equal(ws.globals.find((g) => g.key === 'access_token')?.value, 'TOPSECRET', 'locked global restored on this machine');
+    assert.deepEqual(ws.requests.find((r) => r.name === 'Login')?.captures?.[0], { id: 'c1', variable: 'access_token', from: 'body', path: 'access_token' });
+
+    ws.collections[0].name = 'Identity';
+    await store.save(ws);
+    let after = await listFiles(dir);
+    assert.ok(!after.some((f) => f.startsWith(cdir)), 'old collection folder removed after rename');
+    assert.ok(after.includes(`collections/identity--${cid.slice(0, 8)}/collection.yaml`));
+
+    ws = { ...ws, collections: [], requests: [] };
+    await store.save(ws);
+    after = await listFiles(dir);
+    assert.ok(!after.some((f) => f.startsWith('collections/') && f.endsWith('.yaml')), 'deleted collection removed');
+  });
+
+  await check('File workspace: 0.1 workspaces (requests/ folder) move into "My collection"', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'restless-old-'));
+    const data = await fs.mkdtemp(path.join(os.tmpdir(), 'restless-olddata-'));
+    const old = { id: '11111111-2222-3333-4444-555555555555', name: 'Old one', folder: 'Shop', method: 'GET', url: 'http://x', params: [], headers: [], body: { mode: 'none', text: '', form: [] }, auth: { type: 'none' } };
+    await fs.mkdir(path.join(dir, 'requests', 'Shop'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'requests', 'Shop', 'old-one--11111111.yaml'), JSON.stringify(old));
+    await fs.writeFile(path.join(dir, 'restless.yaml'), 'version: 1\nname: Old\n');
+    const store = new FileWorkspaceStore(dir, data, secrets);
+    const ws = normalizeWorkspace(await store.load());
+    assert.equal(ws.collections[0]?.name, 'My collection');
+    assert.equal(ws.requests[0].collectionId, ws.collections[0].id);
+    assert.equal(ws.requests[0].folder, 'Shop');
+    await store.save(ws);
+    const files = await listFiles(dir);
+    assert.ok(!files.some((f) => f.startsWith('requests')), 'requests/ folder cleaned up');
+    assert.ok(files.some((f) => /^collections\/my-collection--[0-9a-f]{8}\/Shop\/old-one--11111111\.yaml$/.test(f)), 'moved into the collection');
   });
 } finally {
   api.kill();

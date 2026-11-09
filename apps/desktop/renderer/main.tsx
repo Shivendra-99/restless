@@ -34,6 +34,7 @@ const bridge: Bridge = {
     disconnect: (id) => call('mcp:disconnect', id),
     onLog: (cb) => native.onMcpLog(cb),
   },
+  saveFile: (name, text) => call('file:save', name, text),
   storage: {
     load: () => call('ws:load'),
     save: (ws) => call('ws:save', ws),

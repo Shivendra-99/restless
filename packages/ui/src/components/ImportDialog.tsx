@@ -1,17 +1,49 @@
 import { useState } from 'react';
-import { importPostmanCollection, importPostmanEnvironment, isPostmanCollection, parseCurl, type Environment, type RequestItem } from '@restless/core';
+import {
+  importPostmanCollection,
+  importPostmanEnvironment,
+  importPostmanGlobals,
+  isPostmanCollection,
+  isPostmanGlobals,
+  parseCurl,
+  type Collection,
+  type Environment,
+  type EnvVar,
+  type RequestItem,
+} from '@restless/core';
 import { Dialog } from './Dialog';
 import { errorText } from '../util';
 
+export interface ImportResult {
+  /** A new collection to add (Postman collection). Without one, requests go into the current collection. */
+  collection?: Collection;
+  requests: RequestItem[];
+  environments: Environment[];
+  globals: EnvVar[];
+  summary: string;
+}
+
 interface Props {
-  onImport: (requests: RequestItem[], environments: Environment[], summary: string) => void;
+  onImport: (result: ImportResult) => void;
   onClose: () => void;
 }
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export function ImportDialog({ onImport, onClose }: Props) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [done, setDone] = useState<string | null>(null);
+
+  const finish = (result: ImportResult, warns: string[]) => {
+    onImport(result);
+    if (warns.length) {
+      // Keep the dialog open so the notes can be read.
+      setWarnings(warns);
+      setDone(result.summary);
+    } else onClose();
+  };
 
   const run = (input: string, fileName?: string) => {
     setError(null);
@@ -24,27 +56,54 @@ export function ImportDialog({ onImport, onClose }: Props) {
     try {
       if (/^curl\s/.test(t)) {
         const { request, warnings } = parseCurl(t);
-        setWarnings(warnings);
-        onImport([request], [], `Imported ${request.name}`);
+        finish({ requests: [request], environments: [], globals: [], summary: `Imported ${request.name}` }, warnings);
         return;
       }
       const json = JSON.parse(t);
       if (isPostmanCollection(json)) {
         const res = importPostmanCollection(json);
-        setWarnings(res.warnings);
-        onImport(res.requests, res.environment ? [res.environment] : [], `Imported ${res.requests.length} requests from ${res.name}${res.warnings.length ? ` (${res.warnings.length} warnings)` : ''}`);
+        const saved = res.requests.reduce((n, r) => n + (r.captures?.length ?? 0), 0);
+        finish(
+          {
+            collection: res.collection,
+            requests: res.requests,
+            environments: res.environment ? [res.environment] : [],
+            globals: [],
+            summary: `Imported the collection ${res.collection.name} with ${plural(res.requests.length, 'request')}${saved ? `; ${plural(saved, 'value')} will be saved to variables automatically` : ''}`,
+          },
+          res.warnings,
+        );
+        return;
+      }
+      if (isPostmanGlobals(json)) {
+        const globals = importPostmanGlobals(json);
+        finish({ requests: [], environments: [], globals, summary: `Imported ${plural(globals.length, 'global variable')}` }, []);
         return;
       }
       if (Array.isArray(json?.values)) {
         const env = importPostmanEnvironment(json);
-        onImport([], [env], `Imported environment ${env.name}`);
+        finish({ requests: [], environments: [env], globals: [], summary: `Imported the environment ${env.name}` }, []);
         return;
       }
-      setError(`${fileName ?? 'This'} doesn't look like a cURL command, a Postman collection (v2.x) or a Postman environment.`);
+      setError(`${fileName ?? 'This'} doesn't look like a cURL command, a Postman collection (v2.x), Postman globals or a Postman environment.`);
     } catch (e) {
       setError(`Could not import: ${errorText(e)}`);
     }
   };
+
+  if (done) {
+    return (
+      <Dialog title="Imported" onClose={onClose} footer={<button className="btn primary" onClick={onClose}>Done</button>}>
+        <p style={{ margin: 0 }}>{done}.</p>
+        <p style={{ margin: 0, color: 'var(--text-2)' }}>A few things could not be brought over:</p>
+        <ul className="warn-list">
+          {warnings.map((w, i) => (
+            <li key={i}>{w}</li>
+          ))}
+        </ul>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog
@@ -62,7 +121,7 @@ export function ImportDialog({ onImport, onClose }: Props) {
       }
     >
       <label className="field">
-        Paste a cURL command, a Postman collection or a Postman environment
+        Paste a cURL command, or a Postman collection, environment or globals export
         <textarea className="textarea" rows={10} spellCheck={false} value={text} onChange={(e) => setText(e.target.value)} placeholder={"curl 'https://api.example.com/users' -H 'accept: application/json'"} />
       </label>
       <label className="field">

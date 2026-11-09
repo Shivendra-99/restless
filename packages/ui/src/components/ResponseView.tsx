@@ -1,12 +1,16 @@
-import { useMemo, useState } from 'react';
-import { toCurl, type HttpResponse, type HttpTimings, type ResolvedRequest } from '@restless/core';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { formatPath, suggestVariableName, toCurl, type HttpResponse, type HttpTimings, type PathSegment, type ResolvedRequest } from '@restless/core';
 import { JsonView } from './JsonView';
+import { JsonTree, canRenderTree } from './JsonTree';
+import { SaveBar, type Pick } from './SaveBar';
 import { copyText, formatBytes, formatMs, statusClass, tryPrettyJson } from '../util';
 
 interface Props {
   response: HttpResponse | null;
   sent: ResolvedRequest | null;
   sending: boolean;
+  globalNames: Set<string>;
+  onSaveVariable: (pick: Pick, name: string, keepUpdated: boolean) => void;
 }
 
 type Tab = 'body' | 'headers' | 'sent' | 'curl';
@@ -43,11 +47,23 @@ function TimingTrace({ t }: { t: HttpTimings }) {
   );
 }
 
-export function ResponseView({ response, sent, sending }: Props) {
+export function ResponseView({ response, sent, sending, globalNames, onSaveVariable }: Props) {
   const [tab, setTab] = useState<Tab>('body');
   const [raw, setRaw] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [pick, setPick] = useState<Pick | null>(null);
   const pretty = useMemo(() => (response ? tryPrettyJson(response.body) : null), [response]);
+  const parsed = useMemo(() => {
+    if (!pretty || !response) return undefined;
+    const v: unknown = JSON.parse(response.body);
+    return canRenderTree(v) ? v : undefined;
+  }, [pretty, response]);
+
+  useEffect(() => setPick(null), [response]);
+
+  const onPick = useCallback((segs: PathSegment[], value: unknown) => {
+    setPick({ from: 'body', path: formatPath(segs), value: typeof value === 'string' ? value : JSON.stringify(value), suggested: suggestVariableName(segs) });
+  }, []);
 
   if (sending && !response) {
     return (
@@ -103,6 +119,17 @@ export function ResponseView({ response, sent, sending }: Props) {
         ))}
       </div>
       <div className="pane-body">
+        {pick && (tab === 'body' || tab === 'headers') && (
+          <SaveBar
+            pick={pick}
+            existing={globalNames}
+            onCancel={() => setPick(null)}
+            onSave={(name, keep) => {
+              onSaveVariable(pick, name, keep);
+              setPick(null);
+            }}
+          />
+        )}
         {tab === 'body' && (
           <>
             {pretty && (
@@ -115,12 +142,26 @@ export function ResponseView({ response, sent, sending }: Props) {
                     Raw
                   </button>
                 </div>
+                {!raw && parsed !== undefined && !pick && <span className="pick-hint">Click any value to save it as a variable</span>}
               </div>
             )}
-            {pretty && !raw ? <JsonView text={pretty} /> : <pre className="code-view">{response.body || '(empty body)'}</pre>}
+            {pretty && !raw ? (
+              parsed !== undefined ? (
+                <JsonTree value={parsed} selected={pick?.from === 'body' ? pick.path : null} onPick={onPick} />
+              ) : (
+                <JsonView text={pretty} />
+              )
+            ) : (
+              <pre className="code-view">{response.body || '(empty body)'}</pre>
+            )}
           </>
         )}
-        {tab === 'headers' && <HeaderTable headers={response.headers} />}
+        {tab === 'headers' && (
+          <HeaderTable
+            headers={response.headers}
+            onSave={([k, v]) => setPick({ from: 'header', path: k, value: v, suggested: k.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'header' })}
+          />
+        )}
         {tab === 'sent' && sent && (
           <>
             <p className="mono" style={{ marginTop: 0 }}>
@@ -151,7 +192,7 @@ export function ResponseView({ response, sent, sending }: Props) {
   );
 }
 
-function HeaderTable({ headers }: { headers: [string, string][] }) {
+function HeaderTable({ headers, onSave }: { headers: [string, string][]; onSave?: (h: [string, string]) => void }) {
   if (headers.length === 0) return <p style={{ color: 'var(--text-3)' }}>No headers.</p>;
   return (
     <table className="headers-table">
@@ -160,6 +201,13 @@ function HeaderTable({ headers }: { headers: [string, string][] }) {
           <tr key={i}>
             <td>{k}</td>
             <td>{v}</td>
+            {onSave && (
+              <td className="hdr-save">
+                <button className="btn ghost small" onClick={() => onSave([k, v])} title={`Save the ${k} header as a variable`}>
+                  Save
+                </button>
+              </td>
+            )}
           </tr>
         ))}
       </tbody>

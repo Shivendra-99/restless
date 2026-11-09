@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Tiny local API to try Restless against: node scripts/test-http-server.mjs [port]
 import http from 'node:http';
+import { randomBytes } from 'node:crypto';
 
 const port = Number(process.argv[2] || 4545);
+const tokens = new Set();
 const users = [
   { id: 1, name: 'Asha', role: 'admin' },
   { id: 2, name: 'Ravi', role: 'dev' },
@@ -29,6 +31,26 @@ http
         return json(400, { error: 'Body must be JSON' });
       }
     }
+    // Login flow to try saving a token into a variable:
+    //   POST /auth/token  {"username":"asha","password":"secret"}  -> { data: { access_token } }
+    //   GET  /me          Authorization: Bearer <access_token>     -> the user, or 401
+    if (url.pathname === '/auth/token' && req.method === 'POST') {
+      let creds = {};
+      try {
+        creds = JSON.parse(body || '{}');
+      } catch {
+        /* handled below */
+      }
+      if (creds.username !== 'asha' || creds.password !== 'secret') return json(401, { error: 'Use username "asha" and password "secret"' });
+      const token = `tok_${randomBytes(12).toString('hex')}`;
+      tokens.add(token);
+      return json(200, { token_type: 'Bearer', expires_in: 3600, data: { access_token: token, user_id: 1 } }, { 'x-request-id': randomBytes(4).toString('hex') });
+    }
+    if (url.pathname === '/me') {
+      const auth = String(req.headers.authorization ?? '');
+      if (!tokens.has(auth.replace(/^Bearer\s+/i, ''))) return json(401, { error: 'Missing or unknown token. Call POST /auth/token first.' });
+      return json(200, users[0]);
+    }
     if (url.pathname === '/echo') {
       return json(200, { method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams), headers: req.headers, body });
     }
@@ -40,6 +62,6 @@ http
       res.writeHead(302, { location: '/users' });
       return res.end();
     }
-    json(404, { error: 'Not found', try: ['/users', '/echo', '/slow?ms=1500', '/redirect'] });
+    json(404, { error: 'Not found', try: ['/users', 'POST /auth/token', '/me', '/echo', '/slow?ms=1500', '/redirect'] });
   })
   .listen(port, () => console.error(`Demo API on http://localhost:${port}`));

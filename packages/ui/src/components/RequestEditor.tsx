@@ -1,7 +1,13 @@
-import { useState, type ClipboardEvent } from 'react';
-import { HTTP_METHODS, parseCurl, type BodyMode, type HttpMethod, type RequestItem } from '@restless/core';
+import { useMemo, useState, type ClipboardEvent } from 'react';
+import { HTTP_METHODS, newId, parseCurl, usedVariables, type BodyMode, type Capture, type HttpMethod, type RequestItem, type VariableInfo } from '@restless/core';
 import { KeyValueTable } from './KeyValueTable';
 import { tryPrettyJson } from '../util';
+
+export interface Location {
+  collectionId: string;
+  folder: string;
+  label: string;
+}
 
 interface Props {
   item: RequestItem;
@@ -9,14 +15,43 @@ interface Props {
   onSend: () => void;
   sending: boolean;
   onCancel?: () => void;
-  unresolved: string[];
+  vars: Map<string, VariableInfo>;
+  onOpenVariable: (name: string) => void;
+  locations: Location[];
   onNotice: (text: string) => void;
 }
 
-type Tab = 'params' | 'headers' | 'body' | 'auth';
+type Tab = 'params' | 'headers' | 'body' | 'auth' | 'save';
 
-export function RequestEditor({ item, onChange, onSend, sending, onCancel, unresolved, onNotice }: Props) {
+const preview = (v: string) => (v === '' ? '(empty)' : v.length > 22 ? `${v.slice(0, 22)}…` : v);
+
+/** Every {{variable}} the request uses, with its current value, so nothing is a guess before you press Send. */
+function VariableChips({ names, vars, onOpen }: { names: string[]; vars: Map<string, VariableInfo>; onOpen: (name: string) => void }) {
+  if (names.length === 0) return null;
+  return (
+    <div className="var-chips" aria-label="Variables used by this request">
+      <span className="var-chips-label">Uses</span>
+      {names.map((n) => {
+        const v = vars.get(n);
+        return (
+          <button
+            key={n}
+            className={`var-chip ${v ? '' : 'missing'}`}
+            title={v ? `${v.scope === 'global' ? 'Global' : 'Environment'} variable: ${v.value}\nClick to view or edit` : `{{${n}}} is not set yet. Click to add it.`}
+            onClick={() => onOpen(n)}
+          >
+            <span className="mono">{`{{${n}}}`}</span>
+            <span className="var-chip-val">{v ? preview(v.value) : 'not set'}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function RequestEditor({ item, onChange, onSend, sending, onCancel, vars, onOpenVariable, locations, onNotice }: Props) {
   const [tab, setTab] = useState<Tab>(item.body.mode !== 'none' ? 'body' : 'params');
+  const used = useMemo(() => usedVariables(item), [item]);
   const set = (patch: Partial<RequestItem>) => onChange({ ...item, ...patch });
 
   const onUrlPaste = (e: ClipboardEvent<HTMLInputElement>) => {
@@ -25,7 +60,7 @@ export function RequestEditor({ item, onChange, onSend, sending, onCancel, unres
     e.preventDefault();
     try {
       const { request, warnings } = parseCurl(text);
-      onChange({ ...request, id: item.id, folder: item.folder, name: item.name === 'New request' ? request.name : item.name });
+      onChange({ ...request, id: item.id, collectionId: item.collectionId, folder: item.folder, captures: item.captures, name: item.name === 'New request' ? request.name : item.name });
       setTab(request.body.mode !== 'none' ? 'body' : 'headers');
       onNotice(warnings.length ? `Imported from cURL. ${warnings.join('. ')}` : 'Imported from cURL');
     } catch (err) {
@@ -41,6 +76,23 @@ export function RequestEditor({ item, onChange, onSend, sending, onCancel, unres
   return (
     <div className="pane">
       <div className="req-name">
+        <select
+          className="location"
+          aria-label="Saved in"
+          title="Collection and folder this request is saved in"
+          value={`${item.collectionId}::${item.folder}`}
+          onChange={(e) => {
+            const loc = locations.find((l) => `${l.collectionId}::${l.folder}` === e.target.value);
+            if (loc) set({ collectionId: loc.collectionId, folder: loc.folder });
+          }}
+        >
+          {locations.map((l) => (
+            <option key={`${l.collectionId}::${l.folder}`} value={`${l.collectionId}::${l.folder}`}>
+              {l.label}
+            </option>
+          ))}
+        </select>
+        <span className="crumb-sep">/</span>
         <input value={item.name} aria-label="Request name" onChange={(e) => set({ name: e.target.value })} />
       </div>
       <form
@@ -76,19 +128,16 @@ export function RequestEditor({ item, onChange, onSend, sending, onCancel, unres
           </button>
         )}
       </form>
-      {unresolved.length > 0 && (
-        <div className="notice warn" role="status">
-          Not defined in the active environment: {unresolved.map((v) => `{{${v}}}`).join(', ')}
-        </div>
-      )}
+      <VariableChips names={used} vars={vars} onOpen={onOpenVariable} />
       <div className="tabs" role="tablist">
-        {(['params', 'headers', 'body', 'auth'] as Tab[]).map((t) => (
+        {(['params', 'headers', 'body', 'auth', 'save'] as Tab[]).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-            {t[0].toUpperCase() + t.slice(1)}
+            {t === 'save' ? 'Save to variables' : t[0].toUpperCase() + t.slice(1)}
             {t === 'params' && counts.params > 0 && <span className="count">{counts.params}</span>}
             {t === 'headers' && counts.headers > 0 && <span className="count">{counts.headers}</span>}
             {t === 'body' && item.body.mode !== 'none' && <span className="count">{item.body.mode}</span>}
             {t === 'auth' && item.auth.type !== 'none' && <span className="count">{item.auth.type}</span>}
+            {t === 'save' && (item.captures?.length ?? 0) > 0 && <span className="count">{item.captures!.length}</span>}
           </button>
         ))}
       </div>
@@ -97,6 +146,7 @@ export function RequestEditor({ item, onChange, onSend, sending, onCancel, unres
         {tab === 'headers' && <KeyValueTable label="Headers" rows={item.headers} onChange={(headers) => set({ headers })} />}
         {tab === 'body' && <BodyEditor item={item} set={set} />}
         {tab === 'auth' && <AuthEditor item={item} set={set} />}
+        {tab === 'save' && <CapturesEditor item={item} set={set} vars={vars} />}
       </div>
     </div>
   );
@@ -160,6 +210,7 @@ function AuthEditor({ item, set }: { item: RequestItem; set: (p: Partial<Request
         Type
         <select
           className="select"
+          aria-label="Auth type"
           value={a.type}
           onChange={(e) => {
             const t = e.target.value;
@@ -178,8 +229,8 @@ function AuthEditor({ item, set }: { item: RequestItem; set: (p: Partial<Request
       {a.type === 'bearer' && (
         <label className="field">
           Token
-          <input className="input mono" value={a.token} placeholder="{{token}}" onChange={(e) => set({ auth: { ...a, token: e.target.value } })} />
-          <span className="hint">Tip: keep the real token in an environment variable marked secret.</span>
+          <input className="input mono" aria-label="Token" value={a.token} placeholder="{{token}}" onChange={(e) => set({ auth: { ...a, token: e.target.value } })} />
+          <span className="hint">Tip: send your login request, click the token in its response and save it as a variable. Then use it here as {'{{access_token}}'}.</span>
         </label>
       )}
       {a.type === 'basic' && (
@@ -213,6 +264,68 @@ function AuthEditor({ item, set }: { item: RequestItem; set: (p: Partial<Request
           </label>
         </>
       )}
+    </div>
+  );
+}
+
+function CapturesEditor({ item, set, vars }: { item: RequestItem; set: (p: Partial<RequestItem>) => void; vars: Map<string, VariableInfo> }) {
+  const caps = item.captures ?? [];
+  const patch = (id: string, p: Partial<Capture>) => set({ captures: caps.map((c) => (c.id === id ? { ...c, ...p } : c)) });
+  const add = () => set({ captures: [...caps, { id: newId(), variable: '', from: 'body', path: '' }] });
+  return (
+    <div className="captures">
+      <p className="var-help" style={{ marginTop: 0 }}>
+        Each time this request gets a successful response (2xx), these values are saved into global variables. The easiest way to add one: send the request, then click a value in the response.
+      </p>
+      {caps.length > 0 && (
+        <table className="cap-table">
+          <thead>
+            <tr>
+              <th>Save into</th>
+              <th>From</th>
+              <th>Path or header name</th>
+              <th>Current value</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {caps.map((c) => {
+              const cur = vars.get(c.variable);
+              return (
+                <tr key={c.id}>
+                  <td>
+                    <div className="cap-var">
+                      <span className="mono">{'{{'}</span>
+                      <input className="input mono" value={c.variable} placeholder="access_token" aria-label="Variable name" onChange={(e) => patch(c.id, { variable: e.target.value.replace(/[{}\s]/g, '_') })} />
+                      <span className="mono">{'}}'}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <select className="select" value={c.from} aria-label="Take the value from" onChange={(e) => patch(c.id, { from: e.target.value as Capture['from'] })}>
+                      <option value="body">Response body (JSON)</option>
+                      <option value="header">Response header</option>
+                    </select>
+                  </td>
+                  <td>
+                    <input className="input mono" value={c.path} placeholder={c.from === 'body' ? 'data.access_token' : 'X-Auth-Token'} aria-label="Path or header name" onChange={(e) => patch(c.id, { path: e.target.value })} />
+                  </td>
+                  <td className="cap-cur" title={cur?.value}>
+                    {cur ? preview(cur.value) : <span style={{ color: 'var(--text-3)' }}>not saved yet</span>}
+                  </td>
+                  <td>
+                    <button className="icon-btn" aria-label={`Stop saving ${c.variable || 'this value'}`} title="Remove" onClick={() => set({ captures: caps.filter((x) => x.id !== c.id) })}>
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      <button className="btn small" onClick={add}>
+        + Add a value to save
+      </button>
     </div>
   );
 }

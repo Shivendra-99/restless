@@ -4,6 +4,23 @@ A local-first API and MCP client. No login, no account, no cloud sync. Runs as a
 
 Rest less, test more: send REST requests and test MCP servers without an account standing in the way.
 
+Open source under the [MIT license](LICENSE).
+
+## Install
+
+Downloads are on the [Releases page](https://github.com/Shivendra-99/restless/releases/latest).
+
+- macOS: run this in Terminal. It picks the build for your Mac (Apple silicon or Intel), checks it against the release checksums and puts Restless in Applications:
+
+  ```
+  curl -fsSL https://raw.githubusercontent.com/Shivendra-99/restless/main/scripts/install-mac.sh | bash
+  ```
+
+  Restless isn't notarized by Apple (that needs a paid account), so a `.dmg` downloaded with a browser is blocked the first time you open it: open System Settings → Privacy & Security and click Open Anyway. The script avoids that, because downloads made with `curl` aren't marked as coming from the internet.
+- Windows: `Restless-Setup-<version>.exe`. Signed builds come through SignPath Foundation's free signing for open source (see [code signing policy](CODE_SIGNING_POLICY.md)); until a release is signed, Windows shows "Windows protected your PC": click More info → Run anyway.
+- Linux: the `.AppImage` (make it executable and run it).
+- Chrome / Edge extension: unzip `restless-extension-<version>.zip`, open chrome://extensions, turn on Developer mode, Load unpacked.
+
 ## What works today
 
 API testing
@@ -97,11 +114,11 @@ pnpm verify               # unit tests + end-to-end checks of the desktop engine
 
 ## Build installers
 
-- On a Mac: `pnpm dist:mac` → `apps/desktop/release/Restless-0.4.0-arm64.dmg` (and x64)
-- On Windows: `pnpm dist:win` → `apps/desktop/release/Restless Setup 0.4.0.exe`
-- Anywhere: push to GitHub and run the "Build installers" workflow (or push a `v*` tag). It builds the `.dmg`, the `.exe` and the extension zip as downloadable artifacts.
+- On a Mac: `pnpm dist:mac` → `apps/desktop/release/Restless-<version>-arm64.dmg` and `-x64.dmg`
+- On Windows: `pnpm dist:win` → `apps/desktop/release/Restless-Setup-<version>.exe`
+- On GitHub: run the "Build and release" workflow by hand to get every file as an artifact, or push a `v*` tag to publish a GitHub Release with the `.dmg`s, the Windows installer, the AppImage, the extension zip and `SHA256SUMS.txt`.
 
-Builds are unsigned for now. Unsigned Mac apps need right-click → Open the first time; Windows shows a SmartScreen warning. Signing needs an Apple Developer account (and notarization) and a Windows code-signing certificate; add them as CI secrets when ready.
+Signing, all free: Windows through SignPath Foundation, the Microsoft Store package signed by the Store, macOS ad-hoc signed. [docs/RELEASING.md](docs/RELEASING.md) has the one-time setup and how to cut a release.
 
 ## Security notes
 

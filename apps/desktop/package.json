@@ -4,6 +4,8 @@
   "version": "0.4.0",
   "private": true,
   "description": "Local-first API + MCP client. No login, no cloud.",
+  "license": "MIT",
+  "homepage": "https://github.com/Shivendra-99/restless",
   "author": "Spryotech",
   "main": "dist/main.cjs",
   "scripts": {
@@ -39,6 +41,7 @@
   "build": {
     "appId": "com.spryotech.restless",
     "productName": "Restless",
+    "copyright": "Copyright © 2026 Shivendra-99 and Restless contributors",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -61,6 +64,9 @@
       "identity": "-",
       "hardenedRuntime": false
     },
+    "dmg": {
+      "artifactName": "Restless-${version}-${arch}.${ext}"
+    },
     "win": {
       "target": [
         {
@@ -74,7 +80,17 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Restless-Setup-${version}.${ext}"
+    },
+    "appx": {
+      "applicationId": "Restless",
+      "displayName": "Restless",
+      "backgroundColor": "#1b2230",
+      "languages": [
+        "en-US"
+      ],
+      "artifactName": "Restless-${version}.${ext}"
     },
     "linux": {
       "target": [
@@ -84,12 +100,15 @@
       "executableName": "restless",
       "syncDesktopName": true
     },
+    "appImage": {
+      "artifactName": "Restless-${version}-${arch}.${ext}"
+    },
     "executableName": "restless",
     "publish": null
   },
   "desktopName": "restless.desktop",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourname/restless.git"
+    "url": "https://github.com/Shivendra-99/restless.git"
   }
 }

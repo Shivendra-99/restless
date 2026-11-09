@@ -3,6 +3,8 @@
   "private": true,
   "version": "0.4.0",
   "description": "Local-first API + MCP client. No login, no cloud. Desktop (Mac/Windows/Linux) + Chrome/Edge extension.",
+  "license": "MIT",
+  "homepage": "https://github.com/Shivendra-99/restless",
   "packageManager": "pnpm@10.0.0",
   "scripts": {
     "dev:desktop": "pnpm --filter @restless/desktop dev",
@@ -20,5 +22,9 @@
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "zod": "^4.6.7"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shivendra-99/restless.git"
   }
 }

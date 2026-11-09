@@ -1,11 +1,28 @@
-name: Build installers
+name: Build and release
 
-# Builds the Mac .dmg, the Windows .exe and the extension zip on GitHub's runners.
-# A .dmg can only be built on macOS, so this is the easiest way to get all three.
+# Builds Restless for macOS, Windows and Linux, plus the browser extension.
+#   - Run it by hand (Actions → Build and release → Run workflow) to get the files as artifacts.
+#   - Push a tag like v0.4.0 to also publish them as a GitHub Release.
+#
+# Signing, all free:
+#   - Windows: SignPath Foundation (free for open source). Turned on by setting the repository
+#     variable SIGNPATH_ORGANIZATION_ID and the secret SIGNPATH_API_TOKEN. Without them the
+#     Windows installer is built unsigned. See docs/RELEASING.md.
+#   - Microsoft Store: setting MSSTORE_IDENTITY_NAME, MSSTORE_PUBLISHER and
+#     MSSTORE_PUBLISHER_DISPLAY_NAME (from Partner Center) also builds the .appx to upload there.
+#     The Store signs it.
+#   - macOS: ad-hoc signed (notarizing needs a paid Apple account). scripts/install-mac.sh
+#     installs it without the Gatekeeper prompt.
 on:
   workflow_dispatch:
   push:
     tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  CSC_IDENTITY_AUTO_DISCOVERY: false
 
 jobs:
   test:
@@ -19,34 +36,134 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm verify
 
-  desktop:
+  mac:
     needs: test
-    strategy:
-      matrix:
-        include:
-          - os: macos-latest
-            script: dist:mac
-            files: apps/desktop/release/*.dmg
-          - os: windows-latest
-            script: dist:win
-            files: apps/desktop/release/*.exe
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm ${{ matrix.script }}
-        env:
-          # Not signed with a paid certificate yet: Windows is unsigned, macOS is ad-hoc signed
-          # (mac.identity "-" in apps/desktop/package.json). To sign for real, add CSC_LINK / CSC_KEY_PASSWORD
-          # (and APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID for notarization) as repository secrets.
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+      # Builds Restless-<version>-arm64.dmg and Restless-<version>-x64.dmg, ad-hoc signed.
+      - run: pnpm dist:mac
       - uses: actions/upload-artifact@v4
         with:
-          name: restless-${{ matrix.os }}
-          path: ${{ matrix.files }}
+          name: release-mac
+          path: apps/desktop/release/*.dmg
+          if-no-files-found: error
+
+  linux:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @restless/desktop dist:linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: apps/desktop/release/*.AppImage
+          if-no-files-found: error
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm build
+
+      # 1. The app folder (release/win-unpacked) without an installer yet, so restless.exe can be
+      #    signed before it goes into the installer.
+      - run: pnpm exec electron-builder --win dir --x64
+
+      - name: Upload restless.exe for signing
+        id: unsigned-app
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-app
+          path: apps/desktop/release/win-unpacked/restless.exe
+          if-no-files-found: error
+
+      - name: Sign restless.exe (SignPath)
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'restless' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: app
+          github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: apps/desktop/signed-app
+
+      - name: Put the signed restless.exe back
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        run: cp signed-app/restless.exe release/win-unpacked/restless.exe
+
+      # 2. The installer, made from that folder.
+      - run: pnpm exec electron-builder --win nsis --x64 --prepackaged release/win-unpacked
+
+      - name: Upload the installer for signing
+        id: unsigned-installer
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-installer
+          path: apps/desktop/release/Restless-Setup-*.exe
+          if-no-files-found: error
+
+      - name: Sign the installer (SignPath)
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'restless' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: apps/desktop/signed-installer
+
+      - name: Collect the Windows files
+        run: |
+          mkdir -p out
+          if [ -d signed-installer ]; then cp signed-installer/*.exe out/; else cp release/Restless-Setup-*.exe out/; fi
+
+      # 3. Microsoft Store package (the Store signs it after review).
+      - name: Build the Microsoft Store package
+        if: vars.MSSTORE_IDENTITY_NAME != ''
+        env:
+          IDENTITY: ${{ vars.MSSTORE_IDENTITY_NAME }}
+          PUBLISHER: ${{ vars.MSSTORE_PUBLISHER }}
+          PUBLISHER_NAME: ${{ vars.MSSTORE_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          pnpm exec electron-builder --win appx --x64 --prepackaged release/win-unpacked \
+            -c.appx.identityName="$IDENTITY" -c.appx.publisher="$PUBLISHER" -c.appx.publisherDisplayName="$PUBLISHER_NAME"
+          cp release/*.appx out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: apps/desktop/out/*
+          if-no-files-found: error
 
   extension:
     needs: test
@@ -58,8 +175,71 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:extension
-      - run: cd apps/extension/dist && zip -r ../restless-extension.zip .
+      - name: Zip the extension
+        run: |
+          version=$(node -p "require('./apps/extension/manifest.json').version")
+          cd apps/extension/dist && zip -r "../restless-extension-$version.zip" .
       - uses: actions/upload-artifact@v4
         with:
-          name: restless-extension
-          path: apps/extension/restless-extension.zip
+          name: release-extension
+          path: apps/extension/restless-extension-*.zip
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [mac, linux, windows, extension]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: files
+          merge-multiple: true
+      - name: Checksums
+        run: cd files && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Release notes
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          SIGNED: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        run: |
+          version="${TAG#v}"
+          {
+            echo "Restless is a local-first API and MCP client: send HTTP requests, test MCP servers, and record what a website sends in its built-in browser. No login, no account, no cloud."
+            echo
+            echo "## Install"
+            echo
+            echo "**macOS**: run this in Terminal. It downloads the right build for your Mac into Applications:"
+            echo
+            echo '```'
+            echo "curl -fsSL https://raw.githubusercontent.com/$REPO/main/scripts/install-mac.sh | bash"
+            echo '```'
+            echo
+            echo "Or download \`Restless-$version-arm64.dmg\` (Apple silicon) / \`Restless-$version-x64.dmg\` (Intel). Restless isn't notarized by Apple, so the first time you open a downloaded copy macOS stops it: open System Settings → Privacy & Security and click **Open Anyway**."
+            echo
+            echo "**Windows**: \`Restless-Setup-$version.exe\`."
+            if [ "$SIGNED" != "true" ]; then
+              echo "This build is not code-signed yet, so Windows may show \"Windows protected your PC\": click **More info** → **Run anyway**."
+            fi
+            echo
+            echo "**Linux**: the \`.AppImage\` file (make it executable, then run it)."
+            echo
+            echo "**Browser extension (Chrome / Edge)**: unzip \`restless-extension-$version.zip\`, open chrome://extensions, turn on Developer mode, Load unpacked."
+            echo
+            echo "Check a download against \`SHA256SUMS.txt\`."
+            echo
+            echo "---"
+            if [ "$SIGNED" = "true" ]; then
+              echo "Windows: free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org)."
+            fi
+            echo "[Code signing policy](https://github.com/$REPO/blob/main/CODE_SIGNING_POLICY.md) · [License: MIT](https://github.com/$REPO/blob/main/LICENSE)"
+          } > notes.md
+          cat notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: notes.md
+          generate_release_notes: true
+          files: files/*

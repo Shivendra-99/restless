@@ -228,6 +228,7 @@ jobs:
         env:
           TAG: ${{ env.RELEASE_TAG }}
           REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
           SIGNED: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
         run: |
           version="${TAG#v}"
@@ -236,7 +237,13 @@ jobs:
             echo
             echo "## Install"
             echo
-            echo "**macOS**: run this in Terminal. It downloads the right build for your Mac into Applications:"
+            echo "**macOS** with Homebrew:"
+            echo
+            echo '```'
+            echo "brew install ${OWNER,,}/tap/restless"
+            echo '```'
+            echo
+            echo "Or without Homebrew, run this in Terminal. It downloads the right build for your Mac into Applications:"
             echo
             echo '```'
             echo "curl -fsSL https://raw.githubusercontent.com/$REPO/main/scripts/install-mac.sh | bash"
@@ -271,3 +278,54 @@ jobs:
           # GitHub adds its own changelog when the release is made in the UI; only add one for tag pushes.
           generate_release_notes: ${{ github.event_name == 'push' }}
           files: files/*
+
+  # Updates the Homebrew cask in <owner>/homebrew-tap so "brew install <owner>/tap/restless" gets this
+  # release. Needs the secret HOMEBREW_TAP_TOKEN: a fine-grained token with Contents read/write on
+  # that repository. Skipped when the secret isn't set.
+  homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - name: Check for the tap token
+        id: token
+        run: if [ -n "$TAP_TOKEN" ]; then echo "present=yes" >> "$GITHUB_OUTPUT"; else echo "No HOMEBREW_TAP_TOKEN secret; skipping."; fi
+      - if: steps.token.outputs.present == 'yes'
+        uses: actions/checkout@v4
+        with: { ref: '${{ env.BUILD_REF }}' }
+      - if: steps.token.outputs.present == 'yes'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+      - if: steps.token.outputs.present == 'yes'
+        uses: actions/download-artifact@v4
+        with:
+          name: release-mac
+          path: mac
+      - name: Write Casks/restless.rb
+        if: steps.token.outputs.present == 'yes'
+        env:
+          TAG: ${{ env.RELEASE_TAG }}
+          REPO: ${{ github.repository }}
+        run: |
+          version="${TAG#v}"
+          arm=$(sha256sum "mac/Restless-$version-arm64.dmg" | cut -d' ' -f1)
+          intel=$(sha256sum "mac/Restless-$version-x64.dmg" | cut -d' ' -f1)
+          mkdir -p tap/Casks
+          node scripts/render-cask.mjs "$TAG" "$version" "$arm" "$intel" "$REPO" > tap/Casks/restless.rb
+          cat tap/Casks/restless.rb
+      - name: Push to the tap
+        if: steps.token.outputs.present == 'yes'
+        env:
+          TAG: ${{ env.RELEASE_TAG }}
+        working-directory: tap
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/restless.rb
+          if git diff --cached --quiet; then echo "Cask already up to date"; exit 0; fi
+          git commit -m "restless ${TAG#v}"
+          git push

@@ -82,11 +82,29 @@ The Store tile images are in `apps/desktop/build/appx` (made by `scripts/make-ic
 
 ## macOS
 
-Builds are ad-hoc signed, which is free but not notarized. People install with:
+Builds are ad-hoc signed, which is free but not notarized. People install with Homebrew:
+
+```
+brew install shivendra-99/tap/restless
+```
+
+or without it:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/Shivendra-99/restless/main/scripts/install-mac.sh | bash
 ```
+
+### One-time setup: Homebrew tap (free)
+
+The official Homebrew cask list no longer takes apps that aren't notarized, so Restless has its own tap: the repository `Shivendra-99/homebrew-tap` with `Casks/restless.rb`. `brew install shivendra-99/tap/restless` adds the tap and installs in one step. The cask removes the quarantine flag after installing, so macOS opens the app without the "Apple could not verify" prompt, and says so in its install message.
+
+Every release updates the cask automatically (version and checksums, made by `scripts/render-cask.mjs`). For that:
+
+1. GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.
+   - Repository access: Only select repositories → `homebrew-tap`.
+   - Permissions: Contents → Read and write.
+   - Pick an expiry you'll remember to renew (GitHub emails you before it expires).
+2. In the `restless` repository: Settings → Secrets and variables → Actions → New repository secret `HOMEBREW_TAP_TOKEN` with that token.
 
 Files downloaded with `curl` aren't marked as coming from the internet, so macOS opens the app without asking. A `.dmg` downloaded in a browser needs System Settings → Privacy & Security → Open Anyway the first time.
 

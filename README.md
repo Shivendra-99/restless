@@ -10,13 +10,19 @@ Open source under the [MIT license](LICENSE).
 
 Downloads are on the [Releases page](https://github.com/Shivendra-99/restless/releases/latest).
 
-- macOS: run this in Terminal. It picks the build for your Mac (Apple silicon or Intel), checks it against the release checksums and puts Restless in Applications:
+- macOS with Homebrew:
+
+  ```
+  brew install shivendra-99/tap/restless
+  ```
+
+  Or without Homebrew, run this in Terminal. It picks the build for your Mac (Apple silicon or Intel), checks it against the release checksums and puts Restless in Applications:
 
   ```
   curl -fsSL https://raw.githubusercontent.com/Shivendra-99/restless/main/scripts/install-mac.sh | bash
   ```
 
-  Restless isn't notarized by Apple (that needs a paid account), so a `.dmg` downloaded with a browser is blocked the first time you open it: open System Settings → Privacy & Security and click Open Anyway. The script avoids that, because downloads made with `curl` aren't marked as coming from the internet.
+  Restless isn't notarized by Apple (that needs a paid account), so a `.dmg` downloaded with a browser is blocked the first time you open it: open System Settings → Privacy & Security and click Open Anyway. Homebrew and the script both avoid that: the cask removes the quarantine flag after installing, and downloads made with `curl` don't get one.
 - Windows: `Restless-Setup-<version>.exe`. Signed builds come through SignPath Foundation's free signing for open source (see [code signing policy](CODE_SIGNING_POLICY.md)); until a release is signed, Windows shows "Windows protected your PC": click More info → Run anyway.
 - Linux: the `.AppImage` (make it executable and run it).
 - Chrome / Edge extension: unzip `restless-extension-<version>.zip`, open chrome://extensions, turn on Developer mode, Load unpacked.

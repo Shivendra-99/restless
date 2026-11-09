@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Tiny local API to try Probe against: node scripts/test-http-server.mjs [port]
+// Tiny local API to try Restless against: node scripts/test-http-server.mjs [port]
 import http from 'node:http';
 
 const port = Number(process.argv[2] || 4545);
@@ -15,7 +15,7 @@ http
     const body = Buffer.concat(chunks).toString();
     const url = new URL(req.url, `http://${req.headers.host}`);
     const json = (status, data, extra = {}) => {
-      res.writeHead(status, { 'content-type': 'application/json', 'x-demo': 'probe', ...extra });
+      res.writeHead(status, { 'content-type': 'application/json', 'x-demo': 'restless', ...extra });
       res.end(JSON.stringify(data, null, 2));
     };
     if (url.pathname === '/users' && req.method === 'GET') return json(200, users);

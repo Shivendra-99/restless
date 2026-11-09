@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { newId, newRequest, resolveRequest, type McpLogEntry } from '@probe/core';
+import { newId, newRequest, resolveRequest, type McpLogEntry } from '@restless/core';
 import { sendHttp } from '../src/main/http-engine';
 import { McpManager } from '../src/main/mcp-manager';
 import { FileWorkspaceStore } from '../src/main/storage';
@@ -77,7 +77,7 @@ try {
   await check('MCP stdio: connect, list, call, resource, prompt, ping', async () => {
     const cfg = { id: 'stdio1', name: 'demo', transport: 'stdio' as const, command: process.execPath, args: [path.join(scripts, 'test-mcp-server.mjs')], cwd: root };
     const info = await mgr.connect(cfg);
-    assert.equal(info.serverInfo?.name, 'probe-demo-server');
+    assert.equal(info.serverInfo?.name, 'restless-demo-server');
     assert.ok(info.sessionId.startsWith('stdio1:'));
     assert.ok(info.protocolVersion, 'protocol version captured');
     const cat = await mgr.catalog(info.sessionId);
@@ -121,8 +121,8 @@ try {
   });
 
   await check('File workspace: save, reload, secrets kept out of the folder, stale files removed', async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'probe-ws-'));
-    const data = await fs.mkdtemp(path.join(os.tmpdir(), 'probe-data-'));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'restless-ws-'));
+    const data = await fs.mkdtemp(path.join(os.tmpdir(), 'restless-data-'));
     const secrets = { available: false, encrypt: (s: string) => `plain:${Buffer.from(s).toString('base64')}`, decrypt: (s: string) => Buffer.from(s.slice(6), 'base64').toString() };
     const store = new FileWorkspaceStore(dir, data, secrets);
     const ws = await store.load();

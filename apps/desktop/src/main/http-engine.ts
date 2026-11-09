@@ -3,7 +3,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import zlib from 'node:zlib';
-import type { HttpResponse, HttpTimings, ResolvedRequest } from '@probe/core';
+import type { HttpResponse, HttpTimings, ResolvedRequest } from '@restless/core';
 
 const MAX_BODY = 50 * 1024 * 1024;
 const MAX_REDIRECTS = 10;
@@ -59,7 +59,7 @@ function single(r: ResolvedRequest, opts: EngineOptions): Promise<{ res: HttpRes
       if (existing) headers[existing] = ([] as string[]).concat(headers[existing], v);
       else headers[k] = v;
     }
-    if (!Object.keys(headers).some((h) => h.toLowerCase() === 'user-agent')) headers['User-Agent'] = 'Probe/0.1';
+    if (!Object.keys(headers).some((h) => h.toLowerCase() === 'user-agent')) headers['User-Agent'] = 'Restless/0.1';
     if (!Object.keys(headers).some((h) => h.toLowerCase() === 'accept')) headers['Accept'] = '*/*';
     if (!Object.keys(headers).some((h) => h.toLowerCase() === 'accept-encoding')) headers['Accept-Encoding'] = 'gzip, deflate, br';
 

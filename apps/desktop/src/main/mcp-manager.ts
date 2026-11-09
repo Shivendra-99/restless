@@ -2,8 +2,8 @@ import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotoc
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { McpSession, type McpConnectInfo } from '@probe/core/mcp';
-import type { KeyValue, McpLogEntry, McpServerConfig } from '@probe/core';
+import { McpSession, type McpConnectInfo } from '@restless/core/mcp';
+import type { KeyValue, McpLogEntry, McpServerConfig } from '@restless/core';
 
 const kvToRecord = (list: KeyValue[] | undefined) => Object.fromEntries((list ?? []).filter((k) => k.enabled && k.key).map((k) => [k.key, k.value]));
 

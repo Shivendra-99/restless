@@ -1,13 +1,13 @@
 import { createRoot } from 'react-dom/client';
-import { App } from '@probe/ui';
-import type { Bridge, McpLogEntry } from '@probe/core';
+import { App } from '@restless/ui';
+import type { Bridge, McpLogEntry } from '@restless/core';
 
 interface Native {
   platform: string;
   invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T>;
   onMcpLog(cb: (e: McpLogEntry) => void): () => void;
 }
-const native = (window as unknown as { probeNative: Native }).probeNative;
+const native = (window as unknown as { restlessNative: Native }).restlessNative;
 
 // Electron prefixes errors with "Error invoking remote method 'x': Error: ". Keep only the message.
 async function call<T>(channel: string, ...args: unknown[]): Promise<T> {

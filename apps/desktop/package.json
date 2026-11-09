@@ -1,6 +1,6 @@
 {
-  "name": "@probe/desktop",
-  "productName": "Probe",
+  "name": "@restless/desktop",
+  "productName": "Restless",
   "version": "0.1.0",
   "private": true,
   "description": "Local-first API + MCP client. No login, no cloud.",
@@ -22,8 +22,8 @@
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "yaml": "^2.9.1",
-    "@probe/core": "workspace:*",
-    "@probe/ui": "workspace:*",
+    "@restless/core": "workspace:*",
+    "@restless/ui": "workspace:*",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -37,8 +37,8 @@
     "vite": "^8.3.6"
   },
   "build": {
-    "appId": "com.spryotech.probe",
-    "productName": "Probe",
+    "appId": "com.spryotech.restless",
+    "productName": "Restless",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -79,15 +79,15 @@
         "AppImage"
       ],
       "category": "Development",
-      "executableName": "probe",
+      "executableName": "restless",
       "syncDesktopName": true
     },
-    "executableName": "probe",
+    "executableName": "restless",
     "publish": null
   },
-  "desktopName": "probe.desktop",
+  "desktopName": "restless.desktop",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourname/probe.git"
+    "url": "https://github.com/yourname/restless.git"
   }
 }

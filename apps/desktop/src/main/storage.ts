@@ -1,5 +1,5 @@
 // Workspace = a plain folder you can commit to git:
-//   probe.yaml                  name + active environment
+//   restless.yaml                  name + active environment
 //   requests/<folder>/<name>--<id>.yaml   one file per request
 //   environments/<name>--<id>.yaml        secret values are blanked here
 //   mcp-servers.yaml
@@ -7,7 +7,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { emptyWorkspace, type Environment, type HistoryEntry, type McpServerConfig, type RequestItem, type Workspace } from '@probe/core';
+import { emptyWorkspace, type Environment, type HistoryEntry, type McpServerConfig, type RequestItem, type Workspace } from '@restless/core';
 
 export interface SecretStore {
   encrypt(plain: string): string;
@@ -100,7 +100,7 @@ export class FileWorkspaceStore {
 
   async load(): Promise<Workspace> {
     await fs.mkdir(this.root, { recursive: true });
-    const metaFile = path.join(this.root, 'probe.yaml');
+    const metaFile = path.join(this.root, 'restless.yaml');
     const ws = emptyWorkspace(path.basename(this.root));
     if (await fileExists(metaFile)) {
       const meta = YAML.parse(await fs.readFile(metaFile, 'utf8')) ?? {};
@@ -154,7 +154,7 @@ export class FileWorkspaceStore {
   }
 
   async save(ws: Workspace): Promise<void> {
-    await writeIfChanged(path.join(this.root, 'probe.yaml'), YAML.stringify({ version: 1, name: ws.name, activeEnvironmentId: ws.activeEnvironmentId }));
+    await writeIfChanged(path.join(this.root, 'restless.yaml'), YAML.stringify({ version: 1, name: ws.name, activeEnvironmentId: ws.activeEnvironmentId }));
 
     const keep = new Set<string>();
     for (const r of ws.requests) {
@@ -188,7 +188,7 @@ export class FileWorkspaceStore {
     await writeIfChanged(this.historyFile, JSON.stringify(ws.history.slice(0, 200)));
   }
 
-  /** Delete Probe-owned yaml files (they have an `id:` field) that are no longer in the workspace. */
+  /** Delete Restless-owned yaml files (they have an `id:` field) that are no longer in the workspace. */
   private async removeStale(dir: string, keep: Set<string>) {
     for (const f of await walkYaml(dir)) {
       if (keep.has(f)) continue;
@@ -216,7 +216,7 @@ export class FileWorkspaceStore {
   private async writeReadme() {
     await writeIfChanged(
       path.join(this.root, 'README.md'),
-      `# ${path.basename(this.root)}\n\nA Probe workspace. Every request, environment and MCP server is a plain YAML file, so this folder can be committed to git and reviewed in pull requests.\n\nSecret environment values are not stored here; each person keeps them encrypted on their own machine.\n`,
+      `# ${path.basename(this.root)}\n\nA Restless workspace. Every request, environment and MCP server is a plain YAML file, so this folder can be committed to git and reviewed in pull requests.\n\nSecret environment values are not stored here; each person keeps them encrypted on their own machine.\n`,
     );
   }
 }

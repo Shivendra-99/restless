@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { McpServerConfig, ResolvedRequest, Workspace } from '@probe/core';
+import type { McpServerConfig, ResolvedRequest, Workspace } from '@restless/core';
 import { sendHttp } from './http-engine';
 import { McpManager } from './mcp-manager';
 import { FileWorkspaceStore, type SecretStore } from './storage';
@@ -53,7 +53,7 @@ function createWindow() {
     height: 840,
     minWidth: 900,
     minHeight: 560,
-    title: 'Probe',
+    title: 'Restless',
     backgroundColor: '#1b2230',
     show: false,
     webPreferences: {
@@ -97,7 +97,7 @@ function registerIpc() {
   ipcMain.handle('ws:location', () => store.root);
   ipcMain.handle('ws:choose', async () => {
     const res = await dialog.showOpenDialog(win!, {
-      title: 'Open or create a Probe workspace folder',
+      title: 'Open or create a Restless workspace folder',
       properties: ['openDirectory', 'createDirectory'],
     });
     if (res.canceled || !res.filePaths[0]) return null;
@@ -109,7 +109,7 @@ function registerIpc() {
 
 app.whenReady().then(async () => {
   const cfg = await readConfig();
-  const root = process.env.PROBE_WORKSPACE || cfg.workspacePath || path.join(app.getPath('documents'), 'Probe');
+  const root = process.env.RESTLESS_WORKSPACE || cfg.workspacePath || path.join(app.getPath('documents'), 'Restless');
   store = new FileWorkspaceStore(root, app.getPath('userData'), secretStore);
   registerIpc();
   createWindow();

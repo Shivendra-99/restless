@@ -1,4 +1,4 @@
-// Clicking the toolbar icon opens Probe in a tab (or focuses the one already open).
+// Clicking the toolbar icon opens Restless in a tab (or focuses the one already open).
 chrome.action.onClicked.addListener(async () => {
   const url = chrome.runtime.getURL('app.html');
   const [existing] = await chrome.tabs.query({ url });

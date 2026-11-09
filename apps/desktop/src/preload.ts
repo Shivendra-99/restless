@@ -7,7 +7,7 @@ const CHANNELS = new Set([
   'ws:load', 'ws:save', 'ws:location', 'ws:choose',
 ]);
 
-contextBridge.exposeInMainWorld('probeNative', {
+contextBridge.exposeInMainWorld('restlessNative', {
   platform: process.platform,
   invoke(channel: string, ...args: unknown[]) {
     if (!CHANNELS.has(channel)) return Promise.reject(new Error(`Blocked IPC channel ${channel}`));

@@ -1,11 +1,11 @@
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker';
-import { McpSession } from '@probe/core/mcp';
-import { emptyWorkspace, type Bridge, type KeyValue, type McpLogEntry, type Workspace } from '@probe/core';
+import { McpSession } from '@restless/core/mcp';
+import { emptyWorkspace, type Bridge, type KeyValue, type McpLogEntry, type Workspace } from '@restless/core';
 import { cancel, ensureHostAccess, sendViaFetch } from './fetch-engine';
 
-const KEY = 'probe.workspace.v1';
+const KEY = 'restless.workspace.v1';
 const kvToRecord = (list: KeyValue[] | undefined) => Object.fromEntries((list ?? []).filter((k) => k.enabled && k.key).map((k) => [k.key, k.value]));
 
 const sessions = new Map<string, McpSession>();
@@ -26,7 +26,7 @@ export const extensionBridge: Bridge = {
   cancelHttp: cancel,
   mcp: {
     async connect(cfg) {
-      if (cfg.transport === 'stdio') throw new Error('stdio servers need the Probe desktop app: a browser extension cannot start local processes.');
+      if (cfg.transport === 'stdio') throw new Error('stdio servers need the Restless desktop app: a browser extension cannot start local processes.');
       if (!cfg.url) throw new Error('Enter the server URL');
       let url: URL;
       try {

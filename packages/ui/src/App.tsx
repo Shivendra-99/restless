@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { envToVars, newId, newRequest, resolveRequest, type Bridge, type HistoryEntry, type HttpResponse, type RequestItem, type ResolvedRequest, type Workspace } from '@probe/core';
+import { envToVars, newId, newRequest, resolveRequest, type Bridge, type HistoryEntry, type HttpResponse, type RequestItem, type ResolvedRequest, type Workspace } from '@restless/core';
 import { useWorkspace } from './state';
 import { Sidebar } from './components/Sidebar';
 import { RequestEditor } from './components/RequestEditor';
@@ -114,7 +114,7 @@ export function App({ bridge }: { bridge: Bridge }) {
       <header className="topbar">
         <div className="brand">
           <BrandMark />
-          Probe
+          Restless
         </div>
         <div className="mode-switch" role="group" aria-label="Mode">
           <button aria-pressed={mode === 'http'} onClick={() => setMode('http')}>

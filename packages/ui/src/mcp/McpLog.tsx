@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { McpLogEntry } from '@probe/core';
+import type { McpLogEntry } from '@restless/core';
 
 const GLYPH: Record<McpLogEntry['direction'], string> = { out: '→', in: '←', error: '!', stderr: '≡', info: '·' };
 
@@ -41,7 +41,7 @@ export function McpLog({ entries, onClear }: { entries: McpLogEntry[]; onClear: 
         </button>
       </div>
       <div className="log" role="log">
-        {shown.length === 0 && <div className="empty">Messages between Probe and the server appear here.</div>}
+        {shown.length === 0 && <div className="empty">Messages between Restless and the server appear here.</div>}
         {shown.map(({ e, i }) => (
           <div
             key={i}

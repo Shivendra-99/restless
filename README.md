@@ -1,8 +1,8 @@
-# Probe
+# Restless
 
 A local-first API and MCP client. No login, no account, no cloud sync. Runs as a desktop app (macOS, Windows, Linux) and as a Chrome/Edge extension, from one codebase.
 
-"Probe" is a working name. Rename it in `apps/desktop/package.json` (`productName`, `build.appId`) and `apps/extension/manifest.json`.
+Rest less, test more: send REST requests and test MCP servers without an account standing in the way.
 
 ## What works today
 
@@ -48,13 +48,13 @@ The UI never calls `fetch`, spawns processes or touches files. Each shell implem
 A workspace is a plain folder, safe to commit to git:
 
 ```
-probe.yaml                                  name, active environment
+restless.yaml                                  name, active environment
 requests/<folder>/<name>--<id8>.yaml        one file per request
 environments/<name>--<id8>.yaml             secret values are blank here
 mcp-servers.yaml
 ```
 
-History and secret values live in the app's own data folder, per machine. Default workspace: `~/Documents/Probe`; switch with "Open folder".
+History and secret values live in the app's own data folder, per machine. Default workspace: `~/Documents/Restless`; switch with "Open folder".
 
 ## Develop
 
@@ -77,8 +77,8 @@ pnpm verify               # unit tests + end-to-end checks of the desktop engine
 
 ## Build installers
 
-- On a Mac: `pnpm dist:mac` → `apps/desktop/release/Probe-0.1.0-arm64.dmg` (and x64)
-- On Windows: `pnpm dist:win` → `apps/desktop/release/Probe Setup 0.1.0.exe`
+- On a Mac: `pnpm dist:mac` → `apps/desktop/release/Restless-0.1.0-arm64.dmg` (and x64)
+- On Windows: `pnpm dist:win` → `apps/desktop/release/Restless Setup 0.1.0.exe`
 - Anywhere: push to GitHub and run the "Build installers" workflow (or push a `v*` tag). It builds the `.dmg`, the `.exe` and the extension zip as downloadable artifacts.
 
 Builds are unsigned for now. Unsigned Mac apps need right-click → Open the first time; Windows shows a SmartScreen warning. Signing needs an Apple Developer account (and notarization) and a Windows code-signing certificate; add them as CI secrets when ready.
@@ -94,7 +94,7 @@ Builds are unsigned for now. Unsigned Mac apps need right-click → Open the fir
 
 1. MCP client features: answer `sampling` (mock, or your own API key) and `elicitation` requests from the UI; roots
 2. MCP OAuth flow with a step-by-step view
-3. Saved MCP test cases with assertions + a CLI runner for CI (`probe test`)
+3. Saved MCP test cases with assertions + a CLI runner for CI (`restless test`)
 4. Schema-based fuzzing of tool inputs
 5. Extension: capture requests from the current tab into a collection; Requestly-style rules (modify headers, redirect, mock, delay)
 6. Native messaging bridge so the extension can use the desktop app for stdio servers

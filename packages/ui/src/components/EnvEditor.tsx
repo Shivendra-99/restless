@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { newId, type Environment } from '@probe/core';
+import { newId, type Environment } from '@restless/core';
 import { Dialog } from './Dialog';
 import { KeyValueTable } from './KeyValueTable';
 

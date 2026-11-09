@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { McpCallResult } from '@probe/core';
+import type { McpCallResult } from '@restless/core';
 import { JsonView } from '../components/JsonView';
 import { formatMs, tryPrettyJson } from '../util';
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Demo MCP server for trying Probe.
+// Demo MCP server for trying Restless.
 //   stdio:            node scripts/test-mcp-server.mjs
 //   stdio, buggy:     node scripts/test-mcp-server.mjs --pollute   (logs to stdout, the classic bug)
 //   Streamable HTTP:  node scripts/test-mcp-server.mjs --http 3333  -> http://localhost:3333/mcp
@@ -16,7 +16,7 @@ const httpPort = httpIdx >= 0 ? Number(process.argv[httpIdx + 1] || 3333) : null
 
 function buildServer() {
   const server = new McpServer(
-    { name: 'probe-demo-server', version: '1.0.0' },
+    { name: 'restless-demo-server', version: '1.0.0' },
     { instructions: 'Demo server with a few tools, one resource and one prompt.' },
   );
 

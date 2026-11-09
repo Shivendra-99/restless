@@ -1,5 +1,5 @@
 {
-  "name": "@probe/extension",
+  "name": "@restless/extension",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,8 +10,8 @@
   "devDependencies": {
     "@cfworker/json-schema": "^4.1.6",
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "@probe/core": "workspace:*",
-    "@probe/ui": "workspace:*",
+    "@restless/core": "workspace:*",
+    "@restless/ui": "workspace:*",
     "@types/chrome": "^0.1.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

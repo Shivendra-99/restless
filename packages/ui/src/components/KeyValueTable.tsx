@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { KeyValue } from '@probe/core';
+import type { KeyValue } from '@restless/core';
 
 interface Props {
   rows: KeyValue[];

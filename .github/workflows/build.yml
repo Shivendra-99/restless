@@ -43,7 +43,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
       - uses: actions/upload-artifact@v4
         with:
-          name: probe-${{ matrix.os }}
+          name: restless-${{ matrix.os }}
           path: ${{ matrix.files }}
 
   extension:
@@ -56,8 +56,8 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:extension
-      - run: cd apps/extension/dist && zip -r ../probe-extension.zip .
+      - run: cd apps/extension/dist && zip -r ../restless-extension.zip .
       - uses: actions/upload-artifact@v4
         with:
-          name: probe-extension
-          path: apps/extension/probe-extension.zip
+          name: restless-extension
+          path: apps/extension/restless-extension.zip

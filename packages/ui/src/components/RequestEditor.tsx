@@ -1,5 +1,5 @@
 import { useState, type ClipboardEvent } from 'react';
-import { HTTP_METHODS, parseCurl, type BodyMode, type HttpMethod, type RequestItem } from '@probe/core';
+import { HTTP_METHODS, parseCurl, type BodyMode, type HttpMethod, type RequestItem } from '@restless/core';
 import { KeyValueTable } from './KeyValueTable';
 import { tryPrettyJson } from '../util';
 

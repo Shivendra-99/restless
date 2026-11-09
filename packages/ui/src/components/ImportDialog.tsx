@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { importPostmanCollection, importPostmanEnvironment, isPostmanCollection, parseCurl, type Environment, type RequestItem } from '@probe/core';
+import { importPostmanCollection, importPostmanEnvironment, isPostmanCollection, parseCurl, type Environment, type RequestItem } from '@restless/core';
 import { Dialog } from './Dialog';
 import { errorText } from '../util';
 

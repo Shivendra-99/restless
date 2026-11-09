@@ -1,7 +1,7 @@
 // Extension HTTP engine. Extension pages with host permission are not bound by CORS.
 // Headers the browser forbids in fetch() (Cookie, Origin, Referer, Host, User-Agent…) are applied
 // with a short-lived declarativeNetRequest session rule scoped to this extension and the target host.
-import type { HttpResponse, ResolvedRequest } from '@probe/core';
+import type { HttpResponse, ResolvedRequest } from '@restless/core';
 
 const FORBIDDEN = new Set([
   'accept-charset', 'accept-encoding', 'access-control-request-headers', 'access-control-request-method', 'connection',
@@ -24,7 +24,7 @@ export async function ensureHostAccess(url: string): Promise<void> {
   // Call request() first, with no await before it: an await would end the user gesture.
   // It resolves to true without prompting when access was already granted.
   const granted = await chrome.permissions.request({ origins: [origin] });
-  if (!granted) throw new Error(`Probe needs permission to reach ${u.hostname}. Allow it when Chrome asks, then send again.`);
+  if (!granted) throw new Error(`Restless needs permission to reach ${u.hostname}. Allow it when Chrome asks, then send again.`);
 }
 
 let current: AbortController | null = null;

@@ -1,4 +1,4 @@
-"""Render the Probe icon (graphite tile + amber signal trace) to PNGs for the extension and desktop app.
+"""Render the Restless icon (graphite tile + amber signal trace) to PNGs for the extension and desktop app.
 Run from the repo root: python3 scripts/make-icons.py"""
 import os
 from playwright.sync_api import sync_playwright

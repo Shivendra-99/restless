@@ -13,7 +13,7 @@ import {
   type McpServerConfig,
   type McpTool,
   type McpTransportKind,
-} from '@probe/core';
+} from '@restless/core';
 import { KeyValueTable } from '../components/KeyValueTable';
 import { SchemaForm } from './SchemaForm';
 import { ToolResult } from './ToolResult';

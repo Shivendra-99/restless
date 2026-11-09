@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Bridge, Workspace } from '@probe/core';
+import type { Bridge, Workspace } from '@restless/core';
 import { debounce, errorText } from './util';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { toCurl, type HttpResponse, type HttpTimings, type ResolvedRequest } from '@probe/core';
+import { toCurl, type HttpResponse, type HttpTimings, type ResolvedRequest } from '@restless/core';
 import { JsonView } from './JsonView';
 import { copyText, formatBytes, formatMs, statusClass, tryPrettyJson } from '../util';
 

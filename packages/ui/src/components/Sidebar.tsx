@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import type { HistoryEntry, RequestItem } from '@probe/core';
+import type { HistoryEntry, RequestItem } from '@restless/core';
 import { formatMs, statusClass } from '../util';
 
 interface Props {

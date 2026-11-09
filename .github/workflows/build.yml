@@ -39,7 +39,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm ${{ matrix.script }}
         env:
-          # Unsigned builds. Add CSC_LINK / CSC_KEY_PASSWORD (and APPLE_ID etc. for notarization) as secrets to sign.
+          # Not signed with a paid certificate yet: Windows is unsigned, macOS is ad-hoc signed
+          # (mac.identity "-" in apps/desktop/package.json). To sign for real, add CSC_LINK / CSC_KEY_PASSWORD
+          # (and APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID for notarization) as repository secrets.
           CSC_IDENTITY_AUTO_DISCOVERY: false
       - uses: actions/upload-artifact@v4
         with:

@@ -1,0 +1,93 @@
+{
+  "name": "@probe/desktop",
+  "productName": "Probe",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first API + MCP client. No login, no cloud.",
+  "author": "Spryotech",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build:renderer": "vite build",
+    "build:main": "node build-main.mjs",
+    "build": "pnpm build:renderer && pnpm build:main",
+    "dev": "pnpm build && electron .",
+    "start": "electron .",
+    "dist:mac": "pnpm build && electron-builder --mac",
+    "dist:win": "pnpm build && electron-builder --win",
+    "dist:linux": "pnpm build && electron-builder --linux",
+    "typecheck": "tsc -p tsconfig.json",
+    "verify": "esbuild test/engine.verify.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist-test/engine.verify.mjs --log-level=warning \"--banner:js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);\" && node dist-test/engine.verify.mjs ../.."
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "yaml": "^2.9.1",
+    "@probe/core": "workspace:*",
+    "@probe/ui": "workspace:*",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "electron": "45.2.3",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6"
+  },
+  "build": {
+    "appId": "com.spryotech.probe",
+    "productName": "Probe",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Development",
+      "executableName": "probe",
+      "syncDesktopName": true
+    },
+    "executableName": "probe",
+    "publish": null
+  },
+  "desktopName": "probe.desktop",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourname/probe.git"
+  }
+}

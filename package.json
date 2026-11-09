@@ -1,0 +1,23 @@
+{
+  "name": "probe",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local-first API + MCP client. No login, no cloud. Desktop (Mac/Windows/Linux) + Chrome/Edge extension.",
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "dev:desktop": "pnpm --filter @probe/desktop dev",
+    "build:desktop": "pnpm --filter @probe/desktop build",
+    "dist:mac": "pnpm --filter @probe/desktop dist:mac",
+    "dist:win": "pnpm --filter @probe/desktop dist:win",
+    "build:extension": "pnpm --filter @probe/extension build",
+    "test": "pnpm --filter @probe/core test",
+    "typecheck": "pnpm -r typecheck",
+    "verify": "pnpm --filter @probe/core test && pnpm --filter @probe/desktop verify",
+    "mcp:demo": "node scripts/test-mcp-server.mjs --http 3333",
+    "api:demo": "node scripts/test-http-server.mjs 4545"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  }
+}

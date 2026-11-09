@@ -1,0 +1,63 @@
+name: Build installers
+
+# Builds the Mac .dmg, the Windows .exe and the extension zip on GitHub's runners.
+# A .dmg can only be built on macOS, so this is the easiest way to get all three.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm verify
+
+  desktop:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            script: dist:mac
+            files: apps/desktop/release/*.dmg
+          - os: windows-latest
+            script: dist:win
+            files: apps/desktop/release/*.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm ${{ matrix.script }}
+        env:
+          # Unsigned builds. Add CSC_LINK / CSC_KEY_PASSWORD (and APPLE_ID etc. for notarization) as secrets to sign.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: probe-${{ matrix.os }}
+          path: ${{ matrix.files }}
+
+  extension:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:extension
+      - run: cd apps/extension/dist && zip -r ../probe-extension.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: probe-extension
+          path: apps/extension/probe-extension.zip

@@ -1,7 +1,7 @@
 {
   "name": "restless",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local-first API + MCP client. No login, no cloud. Desktop (Mac/Windows/Linux) + Chrome/Edge extension.",
   "packageManager": "pnpm@10.0.0",
   "scripts": {

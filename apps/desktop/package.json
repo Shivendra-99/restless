@@ -1,7 +1,7 @@
 {
   "name": "@restless/desktop",
   "productName": "Restless",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Local-first API + MCP client. No login, no cloud.",
   "author": "Spryotech",

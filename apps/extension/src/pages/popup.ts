@@ -7,7 +7,7 @@ interface TabState {
   bufferedForTab: number;
 }
 
-const RECORD_PERMS: chrome.permissions.Permissions = { permissions: ['debugger', 'tabs'] };
+const RECORD_PERMS: chrome.permissions.Permissions = { permissions: ['tabs'] };
 const API_ONLY_KEY = 'restless.capture.apiOnly';
 
 async function ask<T>(msg: object): Promise<T> {
@@ -96,7 +96,7 @@ async function render() {
             void chrome.runtime.sendMessage({ type: 'capture:pending-start', tabId, apiOnly: apiOnly.checked });
             chrome.permissions.request(RECORD_PERMS).then(async (ok) => {
               if (!ok) {
-                error = 'Recording needs permission to debug this tab.';
+                error = 'Recording needs permission to see your tabs.';
                 return void render();
               }
               try {

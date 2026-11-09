@@ -178,7 +178,7 @@ export function CaptureView({ bridge, capture, collections, focusSessionId, onSa
   const openRecord = () => {
     if (!capture.ensureRecordAccess) return setDialog('record');
     void capture.ensureRecordAccess().then(
-      (ok) => (ok ? setDialog('record') : onNotice('Recording needs permission to debug tabs. Nothing was recorded.')),
+      (ok) => (ok ? setDialog('record') : onNotice('Recording needs permission to see your tabs. Nothing was recorded.')),
       (e) => onNotice(errorText(e)),
     );
   };

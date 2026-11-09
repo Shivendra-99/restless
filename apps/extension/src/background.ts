@@ -359,7 +359,7 @@ function onCdpDetach(source: chrome.debugger.Debuggee) {
   if (rec) void finishRecording(rec);
 }
 
-/** "debugger" is an optional permission: the API exists only once the user allows recording. */
+/** Guarded in case the browser withholds the API (e.g. blocked by policy). */
 function registerRecorder() {
   if (!chrome.debugger || chrome.debugger.onEvent.hasListener(onCdpEvent)) return;
   chrome.debugger.onEvent.addListener(onCdpEvent);

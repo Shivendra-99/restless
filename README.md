@@ -40,7 +40,7 @@ Network capture (time travel)
 - Captures stay on your machine: IndexedDB in the extension, the app's data folder on desktop (not the workspace folder, since captures hold real cookies and tokens). Only the newest 40 (extension) / 60 (desktop) captures are kept
 
 Extension specifics
-- Installs with almost no permissions. Recording asks for "debugger" and "tabs" the first time you use it, rewind asks for "webRequest" and access to sites when you turn it on (and gives it back when you turn it off), connecting the desktop app asks for access to `127.0.0.1`
+- "debugger" is asked for at install, because Chrome doesn't allow it to be requested later. It does nothing until you press Record. Recording asks for "tabs" the first time (to list your tabs), rewind asks for "webRequest" and access to sites when you turn it on (and gives "webRequest" back when you turn it off), connecting the desktop app asks for access to `127.0.0.1`
 - While a tab is recorded Chrome shows a "Restless started debugging this browser" bar; closing that bar stops the recording
 - Asks for access per host the first time you send to it (no blanket `<all_urls>` at install)
 - Sends browser-forbidden headers such as `Cookie`, `Origin`, `Referer`, `User-Agent` using a short-lived `declarativeNetRequest` rule scoped to the extension and the target host; anything still impossible is listed under the response

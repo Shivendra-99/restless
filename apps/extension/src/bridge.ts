@@ -14,10 +14,12 @@ async function ask<T>(msg: object): Promise<T> {
   return res.result as T;
 }
 
-const RECORD_PERMS: chrome.permissions.Permissions = { permissions: ['debugger', 'tabs'] };
+const RECORD_PERMS: chrome.permissions.Permissions = { permissions: ['tabs'] };
 const REWIND_PERMS: chrome.permissions.Permissions = { permissions: ['webRequest'], origins: ['<all_urls>'] };
 const DESKTOP_PERMS: chrome.permissions.Permissions = { origins: ['http://127.0.0.1/*'] };
 
+// "debugger" is a required permission (Chrome doesn't allow it as optional); "tabs" (to list tab titles
+// and addresses), "webRequest" and site access are asked for when first used.
 // chrome.permissions.request must be the first thing a click does, before any await.
 const capture: CaptureBridge = {
   listSessions: store.listSessions,

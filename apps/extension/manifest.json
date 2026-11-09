@@ -26,10 +26,10 @@
   "devtools_page": "devtools.html",
   "permissions": [
     "storage",
-    "declarativeNetRequestWithHostAccess"
+    "declarativeNetRequestWithHostAccess",
+    "debugger"
   ],
   "optional_permissions": [
-    "debugger",
     "tabs",
     "webRequest"
   ],

@@ -1,8 +1,11 @@
 name: Build and release
 
 # Builds Restless for macOS, Windows and Linux, plus the browser extension.
-#   - Run it by hand (Actions → Build and release → Run workflow) to get the files as artifacts.
-#   - Push a tag like v0.4.0 to also publish them as a GitHub Release.
+#   - Publish a release on GitHub (Releases → Draft a new release, any tag such as 0.5.0 or v0.5.0)
+#     and this builds everything and attaches the files and install notes to it.
+#   - Or push a v* tag from a terminal: same result, the release is created for you.
+#   - Run it by hand (Actions → Build and release → Run workflow) to only build, or give it the tag
+#     of an existing release to add the files to that release.
 #
 # Signing, all free:
 #   - Windows: SignPath Foundation (free for open source). Turned on by setting the repository
@@ -14,21 +17,37 @@ name: Build and release
 #   - macOS: ad-hoc signed (notarizing needs a paid Apple account). scripts/install-mac.sh
 #     installs it without the Gatekeeper prompt.
 on:
-  workflow_dispatch:
+  release:
+    types: [published]
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag of an existing release to attach the files to (leave empty to only build)
+        required: false
+        default: ''
 
 permissions:
   contents: read
 
+# A release made on GitHub with a new v* tag fires both "push" and "release": build once.
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 env:
   CSC_IDENTITY_AUTO_DISCOVERY: false
+  # The tag being released, if any, and the code to build.
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag || (startsWith(github.ref, 'refs/tags/') && github.ref_name || '') }}
+  BUILD_REF: ${{ inputs.tag || github.ref }}
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with: { ref: '${{ env.BUILD_REF }}' }
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
@@ -41,6 +60,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with: { ref: '${{ env.BUILD_REF }}' }
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
@@ -58,6 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with: { ref: '${{ env.BUILD_REF }}' }
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
@@ -78,6 +99,7 @@ jobs:
         working-directory: apps/desktop
     steps:
       - uses: actions/checkout@v4
+        with: { ref: '${{ env.BUILD_REF }}' }
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
@@ -170,6 +192,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with: { ref: '${{ env.BUILD_REF }}' }
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
@@ -186,13 +209,14 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'release' || inputs.tag != '' || startsWith(github.ref, 'refs/tags/v')
     needs: [mac, linux, windows, extension]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with: { ref: '${{ env.BUILD_REF }}' }
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*
@@ -202,7 +226,7 @@ jobs:
         run: cd files && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt
       - name: Release notes
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ env.RELEASE_TAG }}
           REPO: ${{ github.repository }}
           SIGNED: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
         run: |
@@ -240,6 +264,9 @@ jobs:
           cat notes.md
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          # Keeps anything you wrote when publishing the release on GitHub; adds the install notes below it.
           body_path: notes.md
+          append_body: true
           generate_release_notes: true
           files: files/*

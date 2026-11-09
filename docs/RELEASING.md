@@ -4,17 +4,13 @@ Everything here is free. Restless is open source (MIT), so Windows signing comes
 
 ## Cut a release
 
-1. Bump the version in `package.json`, `apps/desktop/package.json`, `apps/extension/package.json` and `apps/extension/manifest.json`.
-2. Commit, then tag and push:
+1. Bump the version in `package.json`, `apps/desktop/package.json`, `apps/extension/package.json` and `apps/extension/manifest.json`, commit and push.
+2. On GitHub: Releases → Draft a new release → type a new tag (`0.5.0` or `v0.5.0`), target `main` → Publish. (From a terminal, `git tag v0.5.0 && git push origin v0.5.0` does the same.)
+3. The "Build and release" workflow builds everything and attaches the `.dmg`s, the Windows installer, the AppImage, the extension zip, `SHA256SUMS.txt` and the install notes to that release. It takes about 15–20 minutes. If Windows signing is set up, it waits until you approve the two signing requests in SignPath (restless.exe, then the installer).
 
-   ```
-   git tag v0.5.0
-   git push origin main v0.5.0
-   ```
+To add the files to a release that has none (for example one published before this workflow existed): Actions → Build and release → Run workflow → enter the release's tag.
 
-3. The "Build and release" workflow builds everything and publishes the GitHub Release with the install notes and `SHA256SUMS.txt`. If Windows signing is set up, the run waits until you approve the two signing requests in SignPath (restless.exe, then the installer).
-
-Run the workflow by hand (Actions → Build and release → Run workflow) to build without publishing.
+Run the workflow by hand with no tag to only build; the files are under the run's artifacts.
 
 ## One-time setup: Windows signing with SignPath Foundation (free)
 

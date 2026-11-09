@@ -116,7 +116,7 @@ pnpm verify               # unit tests + end-to-end checks of the desktop engine
 
 - On a Mac: `pnpm dist:mac` → `apps/desktop/release/Restless-<version>-arm64.dmg` and `-x64.dmg`
 - On Windows: `pnpm dist:win` → `apps/desktop/release/Restless-Setup-<version>.exe`
-- On GitHub: run the "Build and release" workflow by hand to get every file as an artifact, or push a `v*` tag to publish a GitHub Release with the `.dmg`s, the Windows installer, the AppImage, the extension zip and `SHA256SUMS.txt`.
+- On GitHub: publish a release (or push a `v*` tag) and the "Build and release" workflow attaches the `.dmg`s, the Windows installer, the AppImage, the extension zip and `SHA256SUMS.txt` to it. Run the workflow by hand to only build.
 
 Signing, all free: Windows through SignPath Foundation, the Microsoft Store package signed by the Store, macOS ad-hoc signed. [docs/RELEASING.md](docs/RELEASING.md) has the one-time setup and how to cut a release.
 

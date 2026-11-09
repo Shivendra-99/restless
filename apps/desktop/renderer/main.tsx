@@ -7,6 +7,7 @@ interface Native {
   invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T>;
   onMcpLog(cb: (e: McpLogEntry) => void): () => void;
   onCaptureChange(cb: (sessionId: string | null) => void): () => void;
+  onCaptureReveal(cb: (sessionId: string) => void): () => void;
 }
 const native = (window as unknown as { restlessNative: Native }).restlessNative;
 
@@ -36,17 +37,20 @@ const bridge: Bridge = {
     onLog: (cb) => native.onMcpLog(cb),
   },
   saveFile: (name, text) => call('file:save', name, text),
-  // Captures arrive from the browser extension over a paired local connection.
+  // Captures come from the Restless browser window (or HAR files).
   capture: {
     listSessions: () => call('capture:list'),
     getEntries: (id) => call('capture:entries', id),
     deleteSession: (id) => call('capture:delete', id),
     importSession: (session, entries) => call('capture:import', session, entries),
     onChange: (cb) => native.onCaptureChange(cb),
-    pairing: {
-      newCode: () => call('capture:pair-code'),
-      browsers: () => call('capture:browsers'),
-      remove: (id) => call('capture:browser-remove', id),
+    onReveal: (cb) => native.onCaptureReveal(cb),
+    browser: {
+      open: (url) => call('capture:browser-open', url),
+      status: () => call('capture:browser-status'),
+      setPaused: (paused) => call('capture:browser-pause', paused),
+      newCapture: () => call('capture:browser-new'),
+      clearData: () => call('capture:browser-clear'),
     },
   },
   storage: {

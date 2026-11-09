@@ -5,14 +5,23 @@ interface Props {
   entries: CapturedEntry[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-  /** Where live recording began; earlier entries came from the rewind buffer. */
-  recordingFrom?: number;
+  /** Page loads, drawn as markers so you can see which page each call belongs to. */
+  pages?: CapturedEntry[];
   live: boolean;
   follow: boolean;
   onFollow: (on: boolean) => void;
 }
 
 export const statusTone = (e: CapturedEntry) => (e.error || !e.status ? 'err' : e.status >= 500 ? 'err' : e.status >= 400 ? 'warn' : e.status >= 300 ? 'info' : 'ok');
+
+const pagePath = (url: string) => {
+  try {
+    const u = new URL(url);
+    return u.pathname === '/' ? u.host : u.pathname;
+  } catch {
+    return url;
+  }
+};
 
 export const clock = (t: number) => {
   const d = new Date(t);
@@ -23,7 +32,7 @@ export const clock = (t: number) => {
  * The time-travel bar: every request is a tick at the moment it started. Drag or click to go back to
  * any moment, step one request at a time, or jump to the latest and follow new ones live.
  */
-export function Timeline({ entries, selectedId, onSelect, recordingFrom, live, follow, onFollow }: Props) {
+export function Timeline({ entries, selectedId, onSelect, pages = [], live, follow, onFollow }: Props) {
   const track = useRef<HTMLDivElement>(null);
   const idx = entries.findIndex((e) => e.id === selectedId);
   const t0 = entries[0]?.startedAt ?? 0;
@@ -66,7 +75,10 @@ export function Timeline({ entries, selectedId, onSelect, recordingFrom, live, f
   };
 
   const sel = idx >= 0 ? entries[idx] : null;
-  const showMarker = recordingFrom !== undefined && recordingFrom > t0;
+  // Page loads inside the range, plus the page the first request belongs to (pinned to the left edge).
+  const loads = pages.filter((p) => p.method === 'GET' && p.startedAt <= t1);
+  const lead = [...loads].reverse().find((p) => p.startedAt < t0);
+  const marks = [...(lead ? [{ ...lead, startedAt: t0 }] : []), ...loads.filter((p) => p.startedAt >= t0)];
 
   return (
     <div className="timeline">
@@ -90,7 +102,6 @@ export function Timeline({ entries, selectedId, onSelect, recordingFrom, live, f
                 {idx + 1} of {entries.length}
               </b>{' '}
               at {clock(sel.startedAt)} <span className="tl-rel">+{((sel.startedAt - t0) / 1000).toFixed(2)} s</span>
-              {sel.before && <span className="tl-before">before recording</span>}
             </>
           ) : (
             `${entries.length} requests`
@@ -117,20 +128,19 @@ export function Timeline({ entries, selectedId, onSelect, recordingFrom, live, f
         onPointerMove={onPointerMove}
         onKeyDown={onKey}
       >
-        {showMarker && <div className="tl-before-zone" style={{ width: pos(recordingFrom!) }} title="Before recording started (from rewind)" />}
         {entries.map((e) => (
           <span
             key={e.id}
-            className={`tl-tick ${statusTone(e)} ${e.id === selectedId ? 'sel' : ''} ${e.before ? 'before' : ''}`}
+            className={`tl-tick ${statusTone(e)} ${e.id === selectedId ? 'sel' : ''}`}
             style={{ left: pos(e.startedAt), width: `max(3px, ${(((e.durationMs ?? 0) / span) * 100).toFixed(3)}%)` }}
           />
         ))}
         {sel && <div className="tl-head" style={{ left: pos(sel.startedAt) }} />}
-        {showMarker && (
-          <div className="tl-marker" style={{ left: pos(recordingFrom!) }}>
-            <span>Recording started</span>
+        {marks.map((p) => (
+          <div key={p.id} className="tl-marker" style={{ left: pos(p.startedAt) }} title={`Page loaded: ${p.url}`}>
+            <span>{pagePath(p.url)}</span>
           </div>
-        )}
+        ))}
       </div>
       <div className="tl-scale">
         <span>{entries.length ? clock(t0) : ''}</span>

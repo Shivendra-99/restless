@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'" />
+    <title>Restless browser</title>
+  </head>
+  <body>
+    <form class="bar" id="bar" autocomplete="off">
+      <div class="nav">
+        <button type="button" id="back" aria-label="Back" title="Back (Alt+←)">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" /></svg>
+        </button>
+        <button type="button" id="forward" aria-label="Forward" title="Forward (Alt+→)">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
+        </button>
+        <button type="button" id="reload" aria-label="Reload" title="Reload (Ctrl+R)">
+          <svg viewBox="0 0 16 16" aria-hidden="true" class="i-reload"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3" /></svg>
+          <svg viewBox="0 0 16 16" aria-hidden="true" class="i-stop"><path d="m4 4 8 8M12 4l-8 8" /></svg>
+        </button>
+      </div>
+      <label class="address">
+        <span class="scheme" id="scheme"></span>
+        <input id="url" name="url" spellcheck="false" placeholder="Type your app's address, e.g. localhost:3000" aria-label="Address" />
+      </label>
+      <button type="button" class="rec" id="rec" aria-pressed="false" title="Pause or resume recording">
+        <span class="dot"></span><span id="rec-label">Recording</span><span class="count" id="count">0</span>
+      </button>
+      <button type="button" class="show" id="show" title="Open this capture in Restless: timeline, responses, save as request">Show in Restless</button>
+    </form>
+    <script type="module" src="./browser.ts"></script>
+  </body>
+</html>

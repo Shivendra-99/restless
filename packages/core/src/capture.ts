@@ -1,8 +1,7 @@
-// Network capture: requests recorded from a browser tab (Chrome debugger), kept in the background
-// before recording started (rewind buffer), read from DevTools, or imported from a HAR file.
+// Network capture: requests recorded by the desktop app's built-in browser, or imported from a HAR file.
 import { HTTP_METHODS, newId, newRequest, type HttpMethod, type KeyValue, type RequestItem, type ResolvedRequest } from './types';
 
-export type CaptureSource = 'recorder' | 'rewind' | 'devtools' | 'har';
+export type CaptureSource = 'browser' | 'har';
 
 export interface CapturedEntry {
   id: string;
@@ -29,8 +28,6 @@ export interface CapturedEntry {
   error?: string;
   /** Why a body is missing or cut, shown next to it. */
   note?: string;
-  /** Happened before live recording started (came from the rewind buffer or DevTools history). */
-  before?: boolean;
   /** Page that made the request. */
   pageUrl?: string;
 }
@@ -41,13 +38,9 @@ export interface CaptureSession {
   source: CaptureSource;
   startedAt: number;
   endedAt?: number;
-  /** When live recording began; earlier entries are "before recording". */
-  recordingFrom?: number;
   pageUrl?: string;
   /** Still receiving requests. */
   live?: boolean;
-  /** Where it was captured, e.g. "Chrome" when it arrived in the desktop app. */
-  device?: string;
   entryCount: number;
 }
 
@@ -225,7 +218,7 @@ export function buildHar(session: CaptureSession, entries: CapturedEntry[]): obj
   return {
     log: {
       version: '1.2',
-      creator: { name: 'Restless', version: '0.3.0' },
+      creator: { name: 'Restless', version: '0.4.0' },
       pages: [],
       entries: entries.map((e) => {
         let query: HarNV[] = [];
@@ -272,4 +265,14 @@ export function buildHar(session: CaptureSession, entries: CapturedEntry[]): obj
       }),
     },
   };
+}
+
+/** What someone types in an address bar → a URL to load. "localhost:3000" → http, "example.com" → https. Null if not allowed. */
+export function normalizeAddress(input: string): string | null {
+  const s = input.trim();
+  if (!s) return null;
+  if (/^(https?|about):/i.test(s)) return s;
+  if (/^[a-z][\w+.-]*:/i.test(s) && !/^[\w.-]+:\d+(\/|$)/.test(s)) return null; // file:, chrome:, javascript: …
+  const local = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|0\.0\.0\.0|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|[\w-]+\.local)(:\d+)?(\/|$)/i.test(s);
+  return `${local ? 'http' : 'https'}://${s}`;
 }

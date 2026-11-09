@@ -66,7 +66,6 @@ export function EntryDetail({ entry: e, collections, onSaveAsRequest }: Props) {
           </button>
         </div>
         <div className="cap-url mono">{e.url}</div>
-        {e.before && <div className="notice warn" style={{ margin: '6px 0 0' }}>This request happened before recording started; it came from the rewind buffer.</div>}
         {e.error && <div className="notice bad" style={{ margin: '6px 0 0' }}>{e.error}</div>}
       </div>
       <div className="tabs" role="tablist">

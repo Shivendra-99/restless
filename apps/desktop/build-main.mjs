@@ -6,3 +6,4 @@ const common = { bundle: true, platform: 'node', target: 'node22', format: 'cjs'
 
 await build({ ...common, entryPoints: ['src/main/main.ts'], outfile: 'dist/main.cjs' });
 await build({ ...common, entryPoints: ['src/preload.ts'], outfile: 'dist/preload.cjs' });
+await build({ ...common, entryPoints: ['src/browser-preload.ts'], outfile: 'dist/browser-preload.cjs' });

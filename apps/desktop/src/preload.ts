@@ -6,7 +6,7 @@ const CHANNELS = new Set([
   'mcp:connect', 'mcp:catalog', 'mcp:call', 'mcp:read', 'mcp:prompt', 'mcp:ping', 'mcp:disconnect',
   'ws:load', 'ws:save', 'ws:location', 'ws:choose', 'file:save',
   'capture:list', 'capture:entries', 'capture:delete', 'capture:import',
-  'capture:pair-code', 'capture:browsers', 'capture:browser-remove',
+  'capture:browser-open', 'capture:browser-status', 'capture:browser-pause', 'capture:browser-new', 'capture:browser-clear',
 ]);
 
 contextBridge.exposeInMainWorld('restlessNative', {
@@ -24,5 +24,10 @@ contextBridge.exposeInMainWorld('restlessNative', {
     const listener = (_e: unknown, sessionId: string | null) => cb(sessionId);
     ipcRenderer.on('capture:changed', listener);
     return () => ipcRenderer.removeListener('capture:changed', listener);
+  },
+  onCaptureReveal(cb: (sessionId: string) => void) {
+    const listener = (_e: unknown, sessionId: string) => cb(sessionId);
+    ipcRenderer.on('capture:reveal', listener);
+    return () => ipcRenderer.removeListener('capture:reveal', listener);
   },
 });

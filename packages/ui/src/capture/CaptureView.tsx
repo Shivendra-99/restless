@@ -1,40 +1,26 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  buildHar,
-  isApiType,
-  parseHar,
-  type Bridge,
-  type CaptureBridge,
-  type CapturedEntry,
-  type CaptureSession,
-  type CaptureTab,
-  type Collection,
-  type DesktopLinkStatus,
-  type PairedBrowser,
-  type RecordingInfo,
-  type RewindStatus,
-} from '@restless/core';
-import { Dialog } from '../components/Dialog';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { buildHar, isApiType, parseHar, type Bridge, type CaptureBridge, type CaptureBrowserStatus, type CapturedEntry, type CaptureSession, type Collection } from '@restless/core';
 import { Menu } from '../components/Menu';
 import { errorText, formatMs, statusClass } from '../util';
 import { EntryDetail } from './EntryDetail';
-import { Timeline, clock } from './Timeline';
+import { Timeline } from './Timeline';
 
 interface Props {
   bridge: Bridge;
   capture: CaptureBridge;
   collections: Collection[];
-  /** Show this session (e.g. opened from the DevTools panel). */
-  focusSessionId?: string | null;
+  /** Show this capture (the browser's "Show in Restless"). `at` makes the same id count again. */
+  focus?: { id: string; at: number } | null;
   onSaveAsRequest: (entry: CapturedEntry, collectionId: string | null) => void;
   onNotice: (text: string) => void;
 }
 
-const SOURCE: Record<CaptureSession['source'], string> = { recorder: 'Recorded', rewind: 'Rewind', devtools: 'DevTools', har: 'HAR file' };
+const ADDRESS_KEY = 'restless.capture.address';
 
 function sessionLabel(s: CaptureSession) {
   const d = new Date(s.startedAt);
-  return `${s.live ? '● ' : ''}${s.name}${s.device ? ` · ${s.device}` : ''} · ${d.toLocaleDateString([], { day: 'numeric', month: 'short' })} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })} · ${s.entryCount}`;
+  const when = `${d.toLocaleDateString([], { day: 'numeric', month: 'short' })} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+  return `${s.live ? '● ' : ''}${s.name} · ${when} · ${s.entryCount}`;
 }
 
 function pathOf(url: string) {
@@ -46,35 +32,41 @@ function pathOf(url: string) {
   }
 }
 
-export function CaptureView({ bridge, capture, collections, focusSessionId, onSaveAsRequest, onNotice }: Props) {
+const readAddress = () => {
+  try {
+    return localStorage.getItem(ADDRESS_KEY) ?? '';
+  } catch {
+    return '';
+  }
+};
+
+export function CaptureView({ bridge, capture, collections, focus, onSaveAsRequest, onNotice }: Props) {
   const [sessions, setSessions] = useState<CaptureSession[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(focusSessionId ?? null);
-  useEffect(() => {
-    if (focusSessionId) setSessionId(focusSessionId);
-  }, [focusSessionId]);
+  const [sessionId, setSessionId] = useState<string | null>(focus?.id ?? null);
   const [entries, setEntries] = useState<CapturedEntry[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
   const [q, setQ] = useState('');
   const [apiOnly, setApiOnly] = useState(true);
-  const [recordings, setRecordings] = useState<RecordingInfo[]>([]);
-  const [rewind, setRewind] = useState<RewindStatus | null>(null);
-  const [desktop, setDesktop] = useState<DesktopLinkStatus | null>(null);
-  const [paired, setPaired] = useState<PairedBrowser[]>([]);
-  const [dialog, setDialog] = useState<'record' | 'rewind' | 'desktop' | 'pair' | null>(null);
+  const [browser, setBrowser] = useState<CaptureBrowserStatus | null>(null);
+  const [address, setAddress] = useState(readAddress);
   const fileInput = useRef<HTMLInputElement>(null);
   const sessionRef = useRef(sessionId);
   sessionRef.current = sessionId;
+
+  useEffect(() => {
+    if (focus) {
+      setSessionId(focus.id);
+      setFollow(true);
+    }
+  }, [focus]);
 
   const session = sessions.find((s) => s.id === sessionId) ?? null;
 
   const refreshMeta = useCallback(async () => {
     const list = await capture.listSessions();
     setSessions(list);
-    if (capture.recordings) setRecordings(await capture.recordings());
-    if (capture.rewindStatus) setRewind(await capture.rewindStatus());
-    if (capture.desktop) setDesktop(await capture.desktop.status());
-    if (capture.pairing) setPaired(await capture.pairing.browsers());
+    if (capture.browser) setBrowser(await capture.browser.status());
     if (!sessionRef.current && list[0]) setSessionId(list[0].id);
     if (sessionRef.current && !list.some((s) => s.id === sessionRef.current)) setSessionId(list[0]?.id ?? null);
   }, [capture]);
@@ -112,6 +104,7 @@ export function CaptureView({ bridge, capture, collections, focusSessionId, onSa
     const s = q.trim().toLowerCase();
     return entries.filter((e) => (!apiOnly || isApiType(e.type)) && (!s || `${e.method} ${e.url} ${e.status ?? ''}`.toLowerCase().includes(s)));
   }, [entries, apiOnly, q]);
+  const pages = useMemo(() => entries.filter((e) => e.type === 'document'), [entries]);
 
   // Follow live: keep the newest request selected as it arrives. Otherwise default to the first one.
   useEffect(() => {
@@ -127,7 +120,7 @@ export function CaptureView({ bridge, capture, collections, focusSessionId, onSa
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (dialog || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.getAttribute('role') === 'slider') return;
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.getAttribute('role') === 'slider' || t.closest('.dialog')) return;
       const next = e.key === 'ArrowLeft' ? selIndex - 1 : e.key === 'ArrowRight' ? selIndex + 1 : null;
       if (next === null || next < 0 || next >= shown.length) return;
       e.preventDefault();
@@ -136,14 +129,37 @@ export function CaptureView({ bridge, capture, collections, focusSessionId, onSa
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selIndex, shown, dialog, session?.live]);
+  }, [selIndex, shown, session?.live]);
 
   // Keep the selected row in view while scrubbing.
   useEffect(() => {
     document.querySelector('.cap-row.sel')?.scrollIntoView({ block: 'nearest' });
   }, [selectedId]);
 
-  const recordingHere = recordings.find((r) => r.sessionId === sessionId);
+  const openBrowser = async (url?: string) => {
+    if (!capture.browser) return;
+    const target = (url ?? address).trim();
+    try {
+      if (target) localStorage.setItem(ADDRESS_KEY, target);
+    } catch {
+      /* not kept */
+    }
+    try {
+      const id = await capture.browser.open(target || undefined);
+      setSessionId(id);
+      setFollow(true);
+      await refreshMeta();
+    } catch (e) {
+      onNotice(errorText(e));
+    }
+  };
+
+  const newCapture = async () => {
+    const id = await capture.browser!.newCapture();
+    setSessionId(id);
+    setFollow(true);
+    await refreshMeta();
+  };
 
   const importHar = async (file: File) => {
     try {
@@ -174,28 +190,23 @@ export function CaptureView({ bridge, capture, collections, focusSessionId, onSa
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  // Must run straight from the click: the browser only shows its permission prompt for a user action.
-  const openRecord = () => {
-    if (!capture.ensureRecordAccess) return setDialog('record');
-    void capture.ensureRecordAccess().then(
-      (ok) => (ok ? setDialog('record') : onNotice('Recording needs permission to see your tabs. Nothing was recorded.')),
-      (e) => onNotice(errorText(e)),
-    );
-  };
+  const recordingHere = !!browser?.open && browser.sessionId === sessionId;
+  const liveElsewhere = browser?.open && browser.sessionId && browser.sessionId !== sessionId ? browser.sessionId : null;
 
-  const grab = async (tabId?: number) => {
-    const id = await capture.grabRewind!(tabId);
-    if (!id) onNotice('Nothing in the rewind buffer yet. It keeps API calls from the last 5 minutes once rewind is on.');
-    else {
-      setSessionId(id);
-      await refreshMeta();
-    }
-  };
-
-  const sessionMenu = [
+  const menu = [
     { label: 'Import HAR file…', onSelect: () => fileInput.current?.click() },
     ...(session ? [{ label: 'Export as HAR', onSelect: () => void exportHar() }] : []),
-    ...(session && capture.desktop && desktop?.connected ? [{ label: 'Send to desktop app', onSelect: () => void capture.desktop!.resend(session.id).then(() => onNotice('Sent to the desktop app'), (e) => onNotice(errorText(e))) }] : []),
+    ...(capture.browser
+      ? [
+          {
+            label: 'Sign out of all sites in the Restless browser',
+            onSelect: () => {
+              if (window.confirm('Clear cookies, logins and site data in the Restless browser? Your captures are kept.'))
+                void capture.browser!.clearData().then(() => onNotice('Signed out everywhere in the Restless browser. Captures are kept.'));
+            },
+          },
+        ]
+      : []),
     ...(session
       ? [
           {
@@ -209,61 +220,63 @@ export function CaptureView({ bridge, capture, collections, focusSessionId, onSa
       : []),
   ];
 
+  const addressForm = (big: boolean) =>
+    capture.browser && (
+      <form
+        className={big ? 'cap-open big' : 'cap-open'}
+        onSubmit={(e) => {
+          e.preventDefault();
+          void openBrowser();
+        }}
+      >
+        <input
+          className="input mono"
+          spellCheck={false}
+          placeholder="Your app's address, e.g. localhost:3000"
+          aria-label="Website to record"
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+        />
+        <button className="btn primary" type="submit">
+          {browser?.open ? 'Go' : 'Open and record'}
+        </button>
+      </form>
+    );
+
   return (
     <div className="capture">
       <div className="cap-toolbar">
-        <select className="select cap-session" aria-label="Capture session" value={sessionId ?? ''} onChange={(e) => setSessionId(e.target.value || null)} disabled={!sessions.length}>
+        <select className="select cap-session" aria-label="Capture" value={sessionId ?? ''} onChange={(e) => setSessionId(e.target.value || null)} disabled={!sessions.length}>
           {!sessions.length && <option value="">No captures yet</option>}
           {sessions.map((s) => (
-            <option key={s.id} value={s.id} title={SOURCE[s.source]}>
+            <option key={s.id} value={s.id} title={s.source === 'har' ? 'Imported HAR file' : 'Recorded in the Restless browser'}>
               {sessionLabel(s)}
             </option>
           ))}
         </select>
-
-        {capture.startRecording &&
-          (recordingHere ? (
-            <button className="btn rec-on" onClick={() => void capture.stopRecording!(recordingHere.tabId).then(refreshMeta)}>
-              <span className="rec-dot" /> Stop recording
-            </button>
-          ) : (
-            <button className="btn" onClick={openRecord}>
-              <span className="rec-dot idle" /> Record a tab
-            </button>
-          ))}
-
-        {capture.grabRewind &&
-          (rewind?.enabled ? (
-            <span className="btn-group">
-              <button className="btn" onClick={() => void grab()} title="Turn the last 5 minutes of API calls into a capture">
-                ⏪ Rewind 5 min <span className="count">{rewind.buffered}</span>
-              </button>
-              <Menu label="Rewind options" className="btn" items={[{ label: 'Turn rewind off', onSelect: () => void capture.setRewind!(false).then(refreshMeta) }]} />
-            </span>
-          ) : (
-            <button className="btn ghost" onClick={() => setDialog('rewind')} title="Keep the last few minutes so you can go back before you pressed Record">
-              ⏪ Rewind: off
-            </button>
-          ))}
-
-        {capture.pairing && (
-          <button className="btn" onClick={() => setDialog('pair')}>
-            Connect browser
-          </button>
-        )}
-
+        {sessions.length > 0 && addressForm(false)}
         <span style={{ flex: 1 }} />
-        {capture.pairing && paired.length > 0 && (
-          <button className="chip on" onClick={() => setDialog('pair')} title="Browsers that send their captures to this app">
-            {paired.length === 1 ? `${paired[0].name} connected` : `${paired.length} browsers connected`}
-          </button>
+        {browser?.open && (
+          <>
+            {liveElsewhere && (
+              <button className="btn ghost" onClick={() => setSessionId(liveElsewhere)}>
+                Show live capture
+              </button>
+            )}
+            <button
+              className={`btn ${browser.paused ? '' : 'rec-on'}`}
+              aria-pressed={!browser.paused}
+              onClick={() => void capture.browser!.setPaused(!browser.paused).then(refreshMeta)}
+              title={browser.paused ? 'Recording is paused. Click to record again.' : 'Recording the Restless browser. Click to pause.'}
+            >
+              <span className={`rec-dot ${browser.paused ? 'idle' : ''}`} /> {browser.paused ? 'Paused' : 'Recording'}
+            </button>
+            <button className="btn" onClick={() => void newCapture()} title="Finish this capture and start an empty one; the browser stays open">
+              New capture
+            </button>
+          </>
         )}
-        {capture.desktop && (
-          <button className={`chip ${desktop?.connected ? (desktop.reachable ? 'on' : 'warn') : ''}`} onClick={() => setDialog('desktop')} title="Send captures to the Restless desktop app">
-            {desktop?.connected ? (desktop.reachable ? 'Desktop app: connected' : 'Desktop app: not running') : 'Send to desktop app'}
-          </button>
-        )}
-        <Menu label="More capture actions" items={sessionMenu} />
+        <Menu label="More capture actions" items={menu} />
         <input
           ref={fileInput}
           type="file"
@@ -278,32 +291,58 @@ export function CaptureView({ bridge, capture, collections, focusSessionId, onSa
       </div>
 
       {!session ? (
-        <CaptureEmpty capture={capture} onRecord={openRecord} onRewind={() => setDialog('rewind')} onPair={() => setDialog('pair')} onImport={() => fileInput.current?.click()} />
+        <div className="empty cap-empty">
+          <h2>Record what a website sends</h2>
+          {capture.browser ? (
+            <>
+              <p className="muted">Restless opens the site in its own browser window and records every API call and page load, with headers, bodies and timing. Go back through them on the timeline and save any call as a request.</p>
+              {addressForm(true)}
+              <ul className="plain-list muted">
+                <li>localhost works, including https with a self-signed certificate.</li>
+                <li>It&rsquo;s a separate browser, so sign in to your site once there. Restless remembers it.</li>
+                <li>Already have a HAR file from DevTools?{' '}
+                  <button className="link" onClick={() => fileInput.current?.click()}>
+                    Import it
+                  </button>
+                </li>
+              </ul>
+            </>
+          ) : (
+            <>
+              <p className="muted">Import a HAR file (DevTools → Network → Export HAR) to step through its requests and save any of them as a request.</p>
+              <div>
+                <button className="btn primary" onClick={() => fileInput.current?.click()}>
+                  Import a HAR file
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       ) : (
         <>
-          <Timeline entries={shown} selectedId={selectedId} onSelect={setSelectedId} recordingFrom={session.recordingFrom} live={!!session.live} follow={follow} onFollow={setFollow} />
+          <Timeline entries={shown} pages={pages} selectedId={selectedId} onSelect={setSelectedId} live={!!session.live && recordingHere} follow={follow} onFollow={setFollow} />
           <div className="cap-split">
             <div className="cap-list">
               <div className="cap-filter">
                 <input className="input" placeholder="Filter by URL, method or status" aria-label="Filter captured requests" value={q} onChange={(e) => setQ(e.target.value)} />
-                <label title="Show only fetch/XHR calls (hide pages, scripts, images)">
+                <label title="Hide page loads; show only fetch/XHR calls">
                   <input type="checkbox" checked={apiOnly} onChange={(e) => setApiOnly(e.target.checked)} /> API calls only
                 </label>
               </div>
               <div className="cap-rows" role="listbox" aria-label="Captured requests">
                 {shown.length === 0 && (
-                  <div className="side-empty">{entries.length ? 'Nothing matches the filter.' : session.live ? 'Recording… use the page and API calls will appear here.' : 'This capture is empty.'}</div>
+                  <div className="side-empty">
+                    {entries.length ? 'Nothing matches the filter.' : session.live ? 'Recording. Use the site in the Restless browser and its API calls appear here.' : 'This capture is empty.'}
+                  </div>
                 )}
-                {shown.map((e, i) => {
+                {shown.map((e) => {
                   const { host, path } = pathOf(e.url);
-                  const startsRecording = !e.before && i > 0 && shown[i - 1].before;
                   return (
-                    <Fragment key={e.id}>
-                    {startsRecording && <div className="cap-rec-line" aria-hidden="true">Recording started</div>}
                     <div
+                      key={e.id}
                       role="option"
                       aria-selected={e.id === selectedId}
-                      className={`cap-row ${e.id === selectedId ? 'sel' : ''} ${e.before ? 'before' : ''}`}
+                      className={`cap-row ${e.id === selectedId ? 'sel' : ''}`}
                       onClick={() => {
                         setSelectedId(e.id);
                         setFollow(!!session.live && e.id === shown[shown.length - 1].id);
@@ -318,7 +357,6 @@ export function CaptureView({ bridge, capture, collections, focusSessionId, onSa
                       </span>
                       <span className="cap-dur">{e.durationMs !== undefined ? formatMs(e.durationMs) : ''}</span>
                     </div>
-                    </Fragment>
                   );
                 })}
               </div>
@@ -327,230 +365,6 @@ export function CaptureView({ bridge, capture, collections, focusSessionId, onSa
           </div>
         </>
       )}
-
-      {dialog === 'record' && capture.listTabs && (
-        <RecordDialog
-          capture={capture}
-          apiOnly={apiOnly}
-          onApiOnly={setApiOnly}
-          onClose={() => setDialog(null)}
-          onStarted={(id) => {
-            setDialog(null);
-            setSessionId(id);
-            setFollow(true);
-            void refreshMeta();
-          }}
-        />
-      )}
-      {dialog === 'rewind' && capture.setRewind && (
-        <Dialog title="Rewind" onClose={() => setDialog(null)} footer={<><button className="btn ghost" onClick={() => setDialog(null)}>Not now</button><button className="btn primary" onClick={() => void capture.setRewind!(true).then((on) => { setDialog(null); void refreshMeta(); onNotice(on ? 'Rewind is on. It keeps the last 5 minutes of API calls.' : 'Rewind needs access to your sites. It stays off.'); })}>Turn on rewind</button></>}>
-          <p style={{ margin: 0 }}>Forgot to press Record? With rewind on, Restless keeps the last 5 minutes of API calls from your tabs, so you can go back and grab requests that already happened.</p>
-          <ul className="plain-list">
-            <li>Kept in memory only and cleared when the browser closes. Nothing is saved unless you grab it.</li>
-            <li>Response bodies aren&rsquo;t kept for these (the browser doesn&rsquo;t expose them without recording). URL, headers, request body and status are.</li>
-            <li>The browser will ask to let Restless read data on all sites; that is what lets it see those requests.</li>
-          </ul>
-        </Dialog>
-      )}
-      {dialog === 'desktop' && capture.desktop && <DesktopDialog capture={capture} status={desktop} onClose={() => setDialog(null)} onChanged={refreshMeta} onNotice={onNotice} />}
-      {dialog === 'pair' && capture.pairing && (
-        <PairDialog
-          capture={capture}
-          onClose={() => {
-            setDialog(null);
-            void refreshMeta();
-          }}
-        />
-      )}
     </div>
-  );
-}
-
-function CaptureEmpty({ capture, onRecord, onRewind, onPair, onImport }: { capture: CaptureBridge; onRecord: () => void; onRewind: () => void; onPair: () => void; onImport: () => void }) {
-  if (capture.pairing) {
-    return (
-      <div className="empty">
-        <h2>Capture requests from your browser</h2>
-        <ol className="steps">
-          <li>Add the Restless extension to Chrome or Edge.</li>
-          <li>Press Connect browser here and type the code into the extension (Capture, then Send to desktop app).</li>
-          <li>Record a tab in the extension. Its API calls show up here as they happen.</li>
-        </ol>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn primary" onClick={onPair}>
-            Connect browser
-          </button>
-          <button className="btn" onClick={onImport}>
-            Import a HAR file
-          </button>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="empty">
-      <h2>Capture what your web app sends</h2>
-      <ol className="steps">
-        <li>Open your app in another tab.</li>
-        <li>Press Record a tab here, or click the Restless icon in the toolbar while on that tab.</li>
-        <li>Use your app. Every API call appears here with its response, and you can step back through them on the timeline.</li>
-      </ol>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button className="btn primary" onClick={onRecord}>
-          Record a tab
-        </button>
-        {capture.setRewind && (
-          <button className="btn" onClick={onRewind}>
-            Turn on rewind
-          </button>
-        )}
-        <button className="btn ghost" onClick={onImport}>
-          Import a HAR file
-        </button>
-      </div>
-      <p className="muted" style={{ marginTop: 16 }}>
-        Using DevTools? Press F12 and open the Restless tab: it picks up everything since DevTools was opened.
-      </p>
-    </div>
-  );
-}
-
-function RecordDialog({ capture, apiOnly, onApiOnly, onClose, onStarted }: { capture: CaptureBridge; apiOnly: boolean; onApiOnly: (v: boolean) => void; onClose: () => void; onStarted: (sessionId: string) => void }) {
-  const [tabs, setTabs] = useState<CaptureTab[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    void capture.listTabs!().then(setTabs, (e) => setError(errorText(e)));
-  }, [capture]);
-  return (
-    <Dialog title="Record a tab" onClose={onClose}>
-      <p style={{ margin: 0 }}>Pick the tab with your app. While it records, the browser shows a bar saying Restless is debugging it; that&rsquo;s expected, and closing the bar stops recording.</p>
-      <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
-        <input type="checkbox" checked={apiOnly} onChange={(e) => onApiOnly(e.target.checked)} /> Only API calls (fetch/XHR), not pages, scripts and images
-      </label>
-      {error && <div className="notice bad" style={{ margin: 0 }}>{error}</div>}
-      {!tabs && !error && <p className="muted">Looking for tabs…</p>}
-      {tabs && tabs.length === 0 && <p className="muted">No website tabs are open. Open your app in a tab, then come back here.</p>}
-      <div className="tab-list">
-        {tabs?.map((t) => (
-          <button
-            key={t.id}
-            className="tab-pick"
-            onClick={() =>
-              void capture.startRecording!(t.id, { apiOnly }).then(onStarted, (e) => setError(`Could not record this tab: ${errorText(e)}`))
-            }
-          >
-            <span className="tab-title">{t.title || t.url}</span>
-            <span className="tab-url mono">{t.url}</span>
-          </button>
-        ))}
-      </div>
-    </Dialog>
-  );
-}
-
-function DesktopDialog({ capture, status, onClose, onChanged, onNotice }: { capture: CaptureBridge; status: DesktopLinkStatus | null; onClose: () => void; onChanged: () => Promise<void>; onNotice: (t: string) => void }) {
-  const [code, setCode] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const connected = !!status?.connected;
-  return (
-    <Dialog title="Send captures to the desktop app" onClose={onClose}>
-      {connected ? (
-        <>
-          <p style={{ margin: 0 }}>
-            {status?.reachable ? 'Connected. New captures are sent to the Restless desktop app as they happen.' : 'Connected, but the desktop app is not answering. Open it; captures made meanwhile can be sent again from the ⋯ menu.'}
-          </p>
-          <div>
-            <button className="btn danger" onClick={() => void capture.desktop!.disconnect().then(onChanged).then(onClose)}>
-              Disconnect
-            </button>
-          </div>
-        </>
-      ) : (
-        <form
-          style={{ display: 'grid', gap: 12 }}
-          onSubmit={(e) => {
-            e.preventDefault();
-            setBusy(true);
-            setError(null);
-            capture
-              .desktop!.connect(code.replace(/\D/g, ''))
-              .then(async () => {
-                await onChanged();
-                onNotice('Connected to the desktop app');
-                onClose();
-              })
-              .catch((err) => setError(errorText(err)))
-              .finally(() => setBusy(false));
-          }}
-        >
-          <ol className="steps" style={{ margin: 0 }}>
-            <li>Open the Restless desktop app and go to Capture.</li>
-            <li>Press Connect browser. It shows a 6-digit code.</li>
-            <li>Type that code here.</li>
-          </ol>
-          <input className="input pair-input mono" inputMode="numeric" autoComplete="off" placeholder="123 456" aria-label="Pairing code" value={code} onChange={(e) => setCode(e.target.value)} />
-          {error && <div className="notice bad" style={{ margin: 0 }}>{error}</div>}
-          <div>
-            <button className="btn primary" type="submit" disabled={busy || code.replace(/\D/g, '').length !== 6}>
-              {busy ? 'Connecting…' : 'Connect'}
-            </button>
-          </div>
-        </form>
-      )}
-    </Dialog>
-  );
-}
-
-function PairDialog({ capture, onClose }: { capture: CaptureBridge; onClose: () => void }) {
-  const [code, setCode] = useState<{ code: string; expiresAt: number } | null>(null);
-  const [browsers, setBrowsers] = useState<PairedBrowser[]>([]);
-  const [now, setNow] = useState(Date.now());
-  const load = useCallback(async () => setBrowsers(await capture.pairing!.browsers()), [capture]);
-  const fresh = useCallback(async () => setCode(await capture.pairing!.newCode()), [capture]);
-  useEffect(() => {
-    void fresh();
-    void load();
-    const t = setInterval(() => {
-      setNow(Date.now());
-      void load();
-    }, 1000);
-    return () => clearInterval(t);
-  }, [fresh, load]);
-  const left = code ? Math.max(0, Math.round((code.expiresAt - now) / 1000)) : 0;
-  return (
-    <Dialog title="Connect a browser" onClose={onClose} footer={<button className="btn primary" onClick={onClose}>Done</button>}>
-      <ol className="steps" style={{ margin: 0 }}>
-        <li>In Chrome or Edge, open the Restless extension and go to Capture.</li>
-        <li>Press Send to desktop app and type this code:</li>
-      </ol>
-      <div className="pair-code mono" aria-live="polite">
-        {code ? `${code.code.slice(0, 3)} ${code.code.slice(3)}` : '…'}
-      </div>
-      <p className="muted" style={{ margin: 0, textAlign: 'center' }}>
-        {left > 0 ? `Works for ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} and only once.` : 'This code expired.'}{' '}
-        <button className="link" onClick={() => void fresh()}>
-          New code
-        </button>
-      </p>
-      <div>
-        <div className="cap-sub">Connected browsers</div>
-        {browsers.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>None yet.</p>
-        ) : (
-          browsers.map((b) => (
-            <div key={b.id} className="auto-row">
-              <span>
-                {b.name}, connected {new Date(b.pairedAt).toLocaleString()}
-                {b.lastSeenAt ? `, last capture ${clock(b.lastSeenAt)}` : ''}
-              </span>
-              <button className="link" onClick={() => void capture.pairing!.remove(b.id).then(load)}>
-                Disconnect
-              </button>
-            </div>
-          ))
-        )}
-      </div>
-    </Dialog>
   );
 }

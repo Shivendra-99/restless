@@ -61,12 +61,6 @@ function downloadText(name: string, text: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** "#capture" → '', "#capture=<id>" → id, anything else → null. */
-function captureLink(): string | null {
-  const m = /^#capture(?:=(.+))?$/.exec(window.location.hash);
-  return m ? decodeURIComponent(m[1] ?? '') : null;
-}
-
 /** Make sure there is a collection to put a new request in; returns the workspace and the collection id. */
 function withCollection(w: Workspace, preferred?: string): [Workspace, string] {
   if (preferred && w.collections.some((c) => c.id === preferred)) return [w, preferred];
@@ -77,19 +71,17 @@ function withCollection(w: Workspace, preferred?: string): [Workspace, string] {
 
 export function App({ bridge }: { bridge: Bridge }) {
   const { ws, update, saveState, loadError, location, reload } = useWorkspace(bridge);
-  // The toolbar popup and the DevTools panel open the app at #capture or #capture=<session id>.
-  const [mode, setMode] = useState<Mode>(() => (captureLink() !== null && bridge.capture ? 'capture' : 'http'));
-  const [captureFocus, setCaptureFocus] = useState<string | null>(() => captureLink() || null);
-  useEffect(() => {
-    const onHash = () => {
-      const link = captureLink();
-      if (link === null || !bridge.capture) return;
-      setMode('capture');
-      if (link) setCaptureFocus(link);
-    };
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
-  }, [bridge.capture]);
+  const [mode, setMode] = useState<Mode>('http');
+  // "Show in Restless" in the Restless browser brings the app to that capture.
+  const [captureFocus, setCaptureFocus] = useState<{ id: string; at: number } | null>(null);
+  useEffect(
+    () =>
+      bridge.capture?.onReveal?.((id) => {
+        setMode('capture');
+        setCaptureFocus({ id, at: Date.now() });
+      }),
+    [bridge.capture],
+  );
   const [activeId, setActiveId] = useState<string | null>(null);
   const [exchanges, setExchanges] = useState<Record<string, Exchange>>({});
   const [sendingId, setSendingId] = useState<string | null>(null);
@@ -286,7 +278,7 @@ export function App({ bridge }: { bridge: Bridge }) {
               bridge={bridge}
               capture={bridge.capture}
               collections={ws.collections}
-              focusSessionId={captureFocus}
+              focus={captureFocus}
               onNotice={flash}
               onSaveAsRequest={(entry, cid) => {
                 const req = capturedToRequest(entry, '');

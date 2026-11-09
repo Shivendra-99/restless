@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildHar, capturedToRequest, capturedToResolved, harToEntry, parseHar, responseText, toCurl, type CapturedEntry, type HarEntry } from '../src';
+import { buildHar, normalizeAddress, capturedToRequest, capturedToResolved, harToEntry, parseHar, responseText, toCurl, type CapturedEntry, type HarEntry } from '../src';
 
 const entry = (p: Partial<CapturedEntry> = {}): CapturedEntry => ({
   id: 'e1',
@@ -77,7 +77,7 @@ describe('HAR', () => {
   it('round-trips through buildHar and parseHar, sorted by time', () => {
     const later = entry({ id: 'b', startedAt: Date.parse('2026-11-09T07:00:05.000Z') });
     const earlier = harToEntry(har, 's1');
-    const text = JSON.stringify(buildHar({ id: 's1', name: 'x', source: 'recorder', startedAt: 0, entryCount: 2 }, [later, earlier]));
+    const text = JSON.stringify(buildHar({ id: 's1', name: 'x', source: 'browser', startedAt: 0, entryCount: 2 }, [later, earlier]));
     const { session, entries } = parseHar(text, 'Back');
     expect(session).toMatchObject({ name: 'Back', source: 'har', entryCount: 2, startedAt: earlier.startedAt });
     expect(entries.map((e) => [e.method, e.status, e.url])).toEqual([
@@ -95,5 +95,22 @@ describe('HAR', () => {
     const big = harToEntry({ ...har, response: { ...har.response, content: { text: 'x'.repeat(1_200_000) } } }, 's');
     expect(big.responseBody?.length).toBe(1_000_000);
     expect(big.note).toMatch(/first 1 MB/);
+  });
+});
+
+describe('normalizeAddress', () => {
+  it('picks http for local addresses and https for the rest', () => {
+    expect(normalizeAddress('localhost:3000')).toBe('http://localhost:3000');
+    expect(normalizeAddress('127.0.0.1:8080/api')).toBe('http://127.0.0.1:8080/api');
+    expect(normalizeAddress('192.168.1.20:5173')).toBe('http://192.168.1.20:5173');
+    expect(normalizeAddress('example.com/login')).toBe('https://example.com/login');
+    expect(normalizeAddress(' https://x.dev ')).toBe('https://x.dev');
+    expect(normalizeAddress('myapp:3000')).toBe('https://myapp:3000');
+  });
+  it('refuses other schemes', () => {
+    expect(normalizeAddress('file:///etc/passwd')).toBeNull();
+    expect(normalizeAddress('javascript:alert(1)')).toBeNull();
+    expect(normalizeAddress('chrome://settings')).toBeNull();
+    expect(normalizeAddress('')).toBeNull();
   });
 });

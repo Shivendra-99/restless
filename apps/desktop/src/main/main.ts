@@ -1,8 +1,8 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
+import { app, BaseWindow, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { CapturedEntry, CaptureSession, McpServerConfig, ResolvedRequest, Workspace } from '@restless/core';
-import { CaptureServer } from './capture-server';
+import { CaptureBrowser, allowLocalCertificates } from './capture-browser';
 import { CaptureStore } from './capture-store';
 import { sendHttp } from './http-engine';
 import { McpManager } from './mcp-manager';
@@ -17,7 +17,7 @@ let httpAbort: AbortController | null = null;
 let saving: Promise<void> = Promise.resolve();
 let quitting = false;
 let captures: CaptureStore;
-let captureServer: CaptureServer;
+let browser: CaptureBrowser;
 const configFile = () => path.join(app.getPath('userData'), 'config.json');
 
 const secretStore: SecretStore = {
@@ -79,7 +79,18 @@ function createWindow() {
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (e) => e.preventDefault());
+  // The Restless browser belongs to this window.
+  win.on('closed', () => browser?.close());
   void win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+}
+
+/** Bring the app forward on the Capture view with this capture selected. */
+function reveal(sessionId: string) {
+  if (!win || win.isDestroyed()) createWindow();
+  if (win!.isMinimized()) win!.restore();
+  win!.show();
+  win!.focus();
+  win!.webContents.send('capture:reveal', sessionId);
 }
 
 function registerIpc() {
@@ -132,9 +143,15 @@ function registerIpc() {
     await captures.put(session, entries);
     captureChanged(session.id);
   });
-  ipcMain.handle('capture:pair-code', () => captureServer.newCode());
-  ipcMain.handle('capture:browsers', () => captureServer.listBrowsers());
-  ipcMain.handle('capture:browser-remove', (_e, id: string) => captureServer.removeBrowser(String(id)));
+  ipcMain.handle('capture:browser-open', (_e, url?: string) => browser.open(typeof url === 'string' ? url : undefined));
+  ipcMain.handle('capture:browser-status', () => browser.status());
+  ipcMain.handle('capture:browser-pause', (_e, paused: boolean) => browser.setPaused(!!paused));
+  ipcMain.handle('capture:browser-new', () => browser.newCapture());
+  ipcMain.handle('capture:browser-clear', () => browser.clearData());
+  // Toolbar of the browser window; anything else sending this is ignored.
+  ipcMain.on('browser:command', (e, cmd: string, arg?: unknown) => {
+    if (browser.isToolbar(e.sender)) browser.command(String(cmd), arg);
+  });
 
   ipcMain.handle('ws:choose', async () => {
     const res = await dialog.showOpenDialog(win!, {
@@ -154,8 +171,13 @@ app.whenReady().then(async () => {
   store = new FileWorkspaceStore(root, app.getPath('userData'), secretStore);
   captures = new CaptureStore(path.join(app.getPath('userData'), 'captures'));
   await captures.closeStale();
-  captureServer = new CaptureServer(captures, path.join(app.getPath('userData'), 'capture-browsers.json'), app.getVersion(), captureChanged);
-  await captureServer.start();
+  browser = new CaptureBrowser(captures, {
+    rendererDir: path.join(__dirname, 'renderer'),
+    toolbarPreload: path.join(__dirname, 'browser-preload.cjs'),
+    onChange: captureChanged,
+    reveal,
+  });
+  allowLocalCertificates();
   registerIpc();
   createWindow();
   app.on('activate', () => {
@@ -173,9 +195,9 @@ app.on('before-quit', (e) => {
   quitting = true;
   // Close windows first: each page flushes its pending save while unloading. Then wait for those
   // writes (and stop MCP servers) before exiting, so the last edit is never lost.
-  const closing = BrowserWindow.getAllWindows().map((w) => new Promise<void>((done) => (w.once('closed', () => done()), w.close())));
+  const closing = BaseWindow.getAllWindows().map((w) => new Promise<void>((done) => (w.once('closed', () => done()), w.close())));
   void Promise.all(closing)
     .then(() => new Promise((r) => setTimeout(r, 50)))
-    .then(() => (captureServer?.stop(), Promise.allSettled([saving, mcp.closeAll()])))
+    .then(() => Promise.allSettled([saving, mcp.closeAll()]))
     .then(() => app.quit());
 });

@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Restless: API & MCP client",
   "short_name": "Restless",
-  "version": "0.3.0",
-  "description": "Local-first API and MCP client with network capture. No login, no cloud. Your requests stay on your computer.",
+  "version": "0.4.0",
+  "description": "Local-first API and MCP client. No login, no cloud. Your requests stay in your browser.",
   "minimum_chrome_version": "120",
   "icons": {
     "16": "icons/icon-16.png",
@@ -12,8 +12,7 @@
     "128": "icons/icon-128.png"
   },
   "action": {
-    "default_title": "Restless",
-    "default_popup": "popup.html",
+    "default_title": "Open Restless",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png"
@@ -23,15 +22,9 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "devtools_page": "devtools.html",
   "permissions": [
     "storage",
-    "declarativeNetRequestWithHostAccess",
-    "debugger"
-  ],
-  "optional_permissions": [
-    "tabs",
-    "webRequest"
+    "declarativeNetRequestWithHostAccess"
   ],
   "optional_host_permissions": [
     "<all_urls>"

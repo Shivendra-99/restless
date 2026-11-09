@@ -1,5 +1,6 @@
 // End-to-end check of the desktop main-process pieces without Electron:
-// HTTP engine against a local API, MCP over stdio (clean + polluted) and Streamable HTTP, and file storage.
+// HTTP engine against a local API, MCP over stdio (clean + polluted) and Streamable HTTP, file storage,
+// and the capture store and pairing server.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -9,6 +10,8 @@ import { newId, newRequest, normalizeWorkspace, resolveRequest, type McpLogEntry
 import { sendHttp } from '../src/main/http-engine';
 import { McpManager } from '../src/main/mcp-manager';
 import { FileWorkspaceStore } from '../src/main/storage';
+import { CaptureStore } from '../src/main/capture-store';
+import { CaptureServer } from '../src/main/capture-server';
 
 const root = path.resolve(process.argv[2] ?? '../..');
 const scripts = path.join(root, 'scripts');
@@ -176,6 +179,84 @@ try {
     const files = await listFiles(dir);
     assert.ok(!files.some((f) => f.startsWith('requests')), 'requests/ folder cleaned up');
     assert.ok(files.some((f) => /^collections\/my-collection--[0-9a-f]{8}\/Shop\/old-one--11111111\.yaml$/.test(f)), 'moved into the collection');
+  });
+
+  await check('Capture store: sessions and requests survive a restart; same id replaces', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'restless-cap-'));
+    const store = new CaptureStore(dir);
+    const s = { id: newId(), name: 'shop', source: 'recorder' as const, startedAt: 2000, live: true, entryCount: 0 };
+    const e1 = { id: newId(), sessionId: s.id, startedAt: 1000, method: 'GET', url: 'http://x/a', type: 'fetch', requestHeaders: [], responseHeaders: [] };
+    const e2 = { ...e1, id: newId(), startedAt: 3000, url: 'http://x/b' };
+    await store.put(s, [e1]);
+    await store.put({ ...s, live: false }, [e2, { ...e1, status: 204 }]);
+    const again = new CaptureStore(dir);
+    const [saved] = await again.list();
+    assert.equal(saved.entryCount, 2);
+    assert.equal(saved.live, false);
+    assert.equal(saved.startedAt, 1000);
+    const list = await again.entries(s.id);
+    assert.deepEqual(list.map((e) => e.url), ['http://x/a', 'http://x/b']);
+    assert.equal(list[0].status, 204);
+    await again.delete(s.id);
+    assert.equal((await again.list()).length, 0);
+    assert.deepEqual(await fs.readdir(dir), []);
+  });
+
+  await check('Capture server: pairing code, token, host and origin checks', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'restless-pair-'));
+    const store = new CaptureStore(path.join(dir, 'captures'));
+    const changes: (string | null)[] = [];
+    const server = new CaptureServer(store, path.join(dir, 'browsers.json'), '0.0.0', (id) => changes.push(id));
+    const port = await server.start();
+    assert.ok(port);
+    const base = `http://127.0.0.1:${port}`;
+    const ext = { origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop', 'content-type': 'application/json' };
+    const post = (p: string, body: unknown, headers: Record<string, string> = ext) => fetch(base + p, { method: 'POST', headers, body: JSON.stringify(body) });
+    try {
+      assert.equal((await (await fetch(`${base}/v1/hello`)).json()).app, 'restless');
+      assert.equal((await post('/v1/pair', { code: '123456' })).status, 403, 'no code yet');
+      const { code } = server.newCode();
+      assert.equal((await post('/v1/pair', { code }, { origin: 'https://evil.example', 'content-type': 'application/json' })).status, 403, 'web pages are refused');
+      const wrong = code === '000000' ? '111111' : '000000';
+      assert.equal((await post('/v1/pair', { code: wrong })).status, 403);
+      const ok = await post('/v1/pair', { code, name: 'Test browser' });
+      assert.equal(ok.status, 200);
+      assert.equal(ok.headers.get('access-control-allow-origin'), ext.origin);
+      const { token } = await ok.json();
+      assert.equal((await post('/v1/pair', { code })).status, 403, 'single use');
+      assert.ok(!(await fs.readFile(path.join(dir, 'browsers.json'), 'utf8')).includes(token), 'token is not stored');
+
+      const session = { id: newId(), name: 'shop', source: 'recorder', startedAt: Date.now(), live: true, entryCount: 0 };
+      const entry = { id: newId(), sessionId: 'x', startedAt: Date.now(), method: 'GET', url: 'http://x/a', type: 'fetch', requestHeaders: [], responseHeaders: [] };
+      assert.equal((await post('/v1/capture', { session, entries: [entry] })).status, 401, 'needs the token');
+      const sent = await post('/v1/capture', { session, entries: [entry] }, { ...ext, authorization: `Bearer ${token}` });
+      assert.equal(sent.status, 200);
+      const [stored] = await store.list();
+      assert.equal(stored.device, 'Test browser');
+      assert.equal((await store.entries(session.id))[0].sessionId, session.id);
+      assert.ok(changes.includes(session.id));
+
+      // A rebinding attack names another host
+      const res = await new Promise<number>((resolve) => {
+        import('node:http').then(({ request }) => {
+          const r = request({ host: '127.0.0.1', port, path: '/v1/hello', headers: { host: `evil.example:${port}` } }, (x) => resolve(x.statusCode ?? 0));
+          r.end();
+        });
+      });
+      assert.equal(res, 403);
+
+      // Five wrong tries burn the code
+      const { code: c2 } = server.newCode();
+      const bad = c2 === '999999' ? '888888' : '999999';
+      for (let i = 0; i < 4; i++) await post('/v1/pair', { code: bad });
+      assert.equal((await post('/v1/pair', { code: bad })).status, 429);
+      assert.equal((await post('/v1/pair', { code: c2 })).status, 403, 'code is gone after too many tries');
+
+      await server.removeBrowser(server.listBrowsers()[0].id);
+      assert.equal((await post('/v1/capture', { session, entries: [] }, { ...ext, authorization: `Bearer ${token}` })).status, 401, 'removed browser is refused');
+    } finally {
+      server.stop();
+    }
   });
 } finally {
   api.kill();

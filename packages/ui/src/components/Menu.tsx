@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 
 export interface MenuItem {
   label: string;
@@ -6,8 +6,8 @@ export interface MenuItem {
   danger?: boolean;
 }
 
-/** A small "⋯" menu. Opens below its button, closes on outside click, Escape, scroll or choice. */
-export function Menu({ items, label }: { items: MenuItem[]; label: string }) {
+/** A small menu ("⋯" by default). Opens below its button, closes on outside click, Escape, scroll or choice. */
+export function Menu({ items, label, trigger, className = 'icon-btn' }: { items: MenuItem[]; label: string; trigger?: ReactNode; className?: string }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const btn = useRef<HTMLButtonElement>(null);
@@ -57,8 +57,8 @@ export function Menu({ items, label }: { items: MenuItem[]; label: string }) {
     <>
       <button
         ref={btn}
-        className="icon-btn"
-        aria-label={label}
+        className={className}
+        aria-label={trigger ? undefined : label}
         title={label}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -67,7 +67,7 @@ export function Menu({ items, label }: { items: MenuItem[]; label: string }) {
           setOpen(!open);
         }}
       >
-        ⋯
+        {trigger ?? '⋯'}
       </button>
       {open && pos && (
         <div ref={list} className="menu" role="menu" style={{ top: pos.top, left: pos.left }} onClick={(e) => e.stopPropagation()}>

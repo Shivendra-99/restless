@@ -186,10 +186,9 @@ const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 /** Generate a cURL command from a resolved request (what was actually sent). */
 export function toCurl(r: ResolvedRequest): string {
-  const parts = ['curl'];
-  if (r.method !== 'GET') parts.push('-X', r.method);
-  parts.push(shq(r.url));
-  for (const [k, v] of r.headers) parts.push('-H', shq(`${k}: ${v}`));
-  if (r.body !== undefined && r.body !== '') parts.push('--data-raw', shq(r.body));
+  // One flag and its value per line, so the command reads like the ones browsers copy.
+  const parts = [r.method !== 'GET' ? `curl -X ${r.method} ${shq(r.url)}` : `curl ${shq(r.url)}`];
+  for (const [k, v] of r.headers) parts.push(`-H ${shq(`${k}: ${v}`)}`);
+  if (r.body !== undefined && r.body !== '') parts.push(`--data-raw ${shq(r.body)}`);
   return parts.join(' \\\n  ');
 }

@@ -2,8 +2,62 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker';
 import { McpSession } from '@restless/core/mcp';
-import { emptyWorkspace, type Bridge, type KeyValue, type McpLogEntry, type Workspace } from '@restless/core';
+import { emptyWorkspace, type Bridge, type CaptureBridge, type KeyValue, type McpLogEntry, type Workspace } from '@restless/core';
 import { cancel, ensureHostAccess, sendViaFetch } from './fetch-engine';
+import * as store from './capture-db';
+
+/** Ask the service worker; it answers { ok, result } or { ok: false, error }. */
+async function ask<T>(msg: object): Promise<T> {
+  const res = (await chrome.runtime.sendMessage(msg)) as { ok: boolean; result?: T; error?: string } | undefined;
+  if (!res) throw new Error('Restless background did not answer. Reload the extension and try again.');
+  if (!res.ok) throw new Error(res.error ?? 'Something went wrong');
+  return res.result as T;
+}
+
+const RECORD_PERMS: chrome.permissions.Permissions = { permissions: ['debugger', 'tabs'] };
+const REWIND_PERMS: chrome.permissions.Permissions = { permissions: ['webRequest'], origins: ['<all_urls>'] };
+const DESKTOP_PERMS: chrome.permissions.Permissions = { origins: ['http://127.0.0.1/*'] };
+
+// chrome.permissions.request must be the first thing a click does, before any await.
+const capture: CaptureBridge = {
+  listSessions: store.listSessions,
+  getEntries: store.getEntries,
+  async deleteSession(id) {
+    await store.deleteSession(id);
+    store.notify(null);
+  },
+  async importSession(session, entries) {
+    await store.putSession(session);
+    await store.putEntries(session, entries);
+    store.notify(session.id);
+    await store.trim();
+  },
+  onChange(cb) {
+    const ch = new BroadcastChannel(store.CHANNEL);
+    ch.onmessage = (e: MessageEvent<{ sessionId: string | null }>) => cb(e.data?.sessionId ?? null);
+    return () => ch.close();
+  },
+  ensureRecordAccess: () => chrome.permissions.request(RECORD_PERMS),
+  listTabs: () => ask({ type: 'capture:tabs' }),
+  startRecording: (tabId, { apiOnly }) => ask({ type: 'capture:start', tabId, apiOnly }),
+  stopRecording: (tabId) => ask({ type: 'capture:stop', tabId }),
+  recordings: () => ask({ type: 'capture:recordings' }),
+  rewindStatus: () => ask({ type: 'capture:rewind-status' }),
+  async setRewind(on) {
+    if (on && !(await chrome.permissions.request(REWIND_PERMS))) return false;
+    return ask({ type: 'capture:rewind-set', on });
+  },
+  grabRewind: (tabId) => ask({ type: 'capture:rewind-grab', tabId }),
+  desktop: {
+    status: () => ask({ type: 'capture:desktop-status' }),
+    async connect(code) {
+      if (!(await chrome.permissions.request(DESKTOP_PERMS))) throw new Error('Restless needs permission to talk to the desktop app on this computer (127.0.0.1).');
+      await ask({ type: 'capture:desktop-connect', code });
+    },
+    disconnect: () => ask({ type: 'capture:desktop-disconnect' }),
+    resend: (sessionId) => ask({ type: 'capture:desktop-resend', sessionId }),
+  },
+};
 
 const KEY = 'restless.workspace.v1';
 const kvToRecord = (list: KeyValue[] | undefined) => Object.fromEntries((list ?? []).filter((k) => k.enabled && k.key).map((k) => [k.key, k.value]));
@@ -83,4 +137,5 @@ export const extensionBridge: Bridge = {
       return 'Stored in this browser profile only';
     },
   },
+  capture,
 };

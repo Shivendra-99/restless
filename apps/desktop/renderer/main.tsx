@@ -6,6 +6,7 @@ interface Native {
   platform: string;
   invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T>;
   onMcpLog(cb: (e: McpLogEntry) => void): () => void;
+  onCaptureChange(cb: (sessionId: string | null) => void): () => void;
 }
 const native = (window as unknown as { restlessNative: Native }).restlessNative;
 
@@ -35,6 +36,19 @@ const bridge: Bridge = {
     onLog: (cb) => native.onMcpLog(cb),
   },
   saveFile: (name, text) => call('file:save', name, text),
+  // Captures arrive from the browser extension over a paired local connection.
+  capture: {
+    listSessions: () => call('capture:list'),
+    getEntries: (id) => call('capture:entries', id),
+    deleteSession: (id) => call('capture:delete', id),
+    importSession: (session, entries) => call('capture:import', session, entries),
+    onChange: (cb) => native.onCaptureChange(cb),
+    pairing: {
+      newCode: () => call('capture:pair-code'),
+      browsers: () => call('capture:browsers'),
+      remove: (id) => call('capture:browser-remove', id),
+    },
+  },
   storage: {
     load: () => call('ws:load'),
     save: (ws) => call('ws:save', ws),

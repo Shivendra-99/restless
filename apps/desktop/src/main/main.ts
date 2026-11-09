@@ -1,7 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { McpServerConfig, ResolvedRequest, Workspace } from '@restless/core';
+import type { CapturedEntry, CaptureSession, McpServerConfig, ResolvedRequest, Workspace } from '@restless/core';
+import { CaptureServer } from './capture-server';
+import { CaptureStore } from './capture-store';
 import { sendHttp } from './http-engine';
 import { McpManager } from './mcp-manager';
 import { FileWorkspaceStore, type SecretStore } from './storage';
@@ -14,6 +16,8 @@ let store: FileWorkspaceStore;
 let httpAbort: AbortController | null = null;
 let saving: Promise<void> = Promise.resolve();
 let quitting = false;
+let captures: CaptureStore;
+let captureServer: CaptureServer;
 const configFile = () => path.join(app.getPath('userData'), 'config.json');
 
 const secretStore: SecretStore = {
@@ -48,6 +52,10 @@ async function writeConfig(cfg: { workspacePath?: string }) {
 const mcp = new McpManager((entry) => {
   if (win && !win.isDestroyed()) win.webContents.send('mcp:log', entry);
 });
+
+const captureChanged = (sessionId: string | null) => {
+  if (win && !win.isDestroyed()) win.webContents.send('capture:changed', sessionId);
+};
 
 function createWindow() {
   win = new BrowserWindow({
@@ -103,15 +111,31 @@ function registerIpc() {
   });
   ipcMain.handle('ws:location', () => store.root);
   ipcMain.handle('file:save', async (_e, suggestedName: string, text: string) => {
+    const name = path.basename(String(suggestedName));
+    const har = name.toLowerCase().endsWith('.har');
     const res = await dialog.showSaveDialog(win!, {
-      title: 'Export collection',
-      defaultPath: path.join(app.getPath('downloads'), path.basename(String(suggestedName))),
-      filters: [{ name: 'Postman collection', extensions: ['json'] }],
+      title: har ? 'Export capture' : 'Export collection',
+      defaultPath: path.join(app.getPath('downloads'), name),
+      filters: har ? [{ name: 'HAR file', extensions: ['har'] }] : [{ name: 'Postman collection', extensions: ['json'] }],
     });
     if (res.canceled || !res.filePath) return null;
     await fs.writeFile(res.filePath, String(text), 'utf8');
     return res.filePath;
   });
+  ipcMain.handle('capture:list', () => captures.list());
+  ipcMain.handle('capture:entries', (_e, id: string) => captures.entries(String(id)));
+  ipcMain.handle('capture:delete', async (_e, id: string) => {
+    await captures.delete(String(id));
+    captureChanged(null);
+  });
+  ipcMain.handle('capture:import', async (_e, session: CaptureSession, entries: CapturedEntry[]) => {
+    await captures.put(session, entries);
+    captureChanged(session.id);
+  });
+  ipcMain.handle('capture:pair-code', () => captureServer.newCode());
+  ipcMain.handle('capture:browsers', () => captureServer.listBrowsers());
+  ipcMain.handle('capture:browser-remove', (_e, id: string) => captureServer.removeBrowser(String(id)));
+
   ipcMain.handle('ws:choose', async () => {
     const res = await dialog.showOpenDialog(win!, {
       title: 'Open or create a Restless workspace folder',
@@ -128,6 +152,10 @@ app.whenReady().then(async () => {
   const cfg = await readConfig();
   const root = process.env.RESTLESS_WORKSPACE || cfg.workspacePath || path.join(app.getPath('documents'), 'Restless');
   store = new FileWorkspaceStore(root, app.getPath('userData'), secretStore);
+  captures = new CaptureStore(path.join(app.getPath('userData'), 'captures'));
+  await captures.closeStale();
+  captureServer = new CaptureServer(captures, path.join(app.getPath('userData'), 'capture-browsers.json'), app.getVersion(), captureChanged);
+  await captureServer.start();
   registerIpc();
   createWindow();
   app.on('activate', () => {
@@ -148,6 +176,6 @@ app.on('before-quit', (e) => {
   const closing = BrowserWindow.getAllWindows().map((w) => new Promise<void>((done) => (w.once('closed', () => done()), w.close())));
   void Promise.all(closing)
     .then(() => new Promise((r) => setTimeout(r, 50)))
-    .then(() => Promise.allSettled([saving, mcp.closeAll()]))
+    .then(() => (captureServer?.stop(), Promise.allSettled([saving, mcp.closeAll()])))
     .then(() => app.quit());
 });

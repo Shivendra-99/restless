@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  capturedToRequest,
   collectionFolders,
   DEFAULT_COLLECTION_NAME,
   exportPostmanCollection,
@@ -26,9 +27,10 @@ import { ResponseView } from './components/ResponseView';
 import { VariablesDialog, type VariablesTarget } from './components/VariablesDialog';
 import { ImportDialog } from './components/ImportDialog';
 import { McpView } from './mcp/McpView';
+import { CaptureView } from './capture/CaptureView';
 import { errorText } from './util';
 
-type Mode = 'http' | 'mcp';
+type Mode = 'http' | 'mcp' | 'capture';
 interface Exchange {
   response: HttpResponse | null;
   sent: ResolvedRequest | null;
@@ -59,6 +61,12 @@ function downloadText(name: string, text: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/** "#capture" → '', "#capture=<id>" → id, anything else → null. */
+function captureLink(): string | null {
+  const m = /^#capture(?:=(.+))?$/.exec(window.location.hash);
+  return m ? decodeURIComponent(m[1] ?? '') : null;
+}
+
 /** Make sure there is a collection to put a new request in; returns the workspace and the collection id. */
 function withCollection(w: Workspace, preferred?: string): [Workspace, string] {
   if (preferred && w.collections.some((c) => c.id === preferred)) return [w, preferred];
@@ -69,7 +77,19 @@ function withCollection(w: Workspace, preferred?: string): [Workspace, string] {
 
 export function App({ bridge }: { bridge: Bridge }) {
   const { ws, update, saveState, loadError, location, reload } = useWorkspace(bridge);
-  const [mode, setMode] = useState<Mode>('http');
+  // The toolbar popup and the DevTools panel open the app at #capture or #capture=<session id>.
+  const [mode, setMode] = useState<Mode>(() => (captureLink() !== null && bridge.capture ? 'capture' : 'http'));
+  const [captureFocus, setCaptureFocus] = useState<string | null>(() => captureLink() || null);
+  useEffect(() => {
+    const onHash = () => {
+      const link = captureLink();
+      if (link === null || !bridge.capture) return;
+      setMode('capture');
+      if (link) setCaptureFocus(link);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, [bridge.capture]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [exchanges, setExchanges] = useState<Record<string, Exchange>>({});
   const [sendingId, setSendingId] = useState<string | null>(null);
@@ -203,6 +223,11 @@ export function App({ bridge }: { bridge: Bridge }) {
           <button aria-pressed={mode === 'mcp'} onClick={() => setMode('mcp')}>
             MCP
           </button>
+          {bridge.capture && (
+            <button aria-pressed={mode === 'capture'} onClick={() => setMode('capture')}>
+              Capture
+            </button>
+          )}
         </div>
         <span className="spacer" />
         <span className="where" title={location}>
@@ -239,7 +264,7 @@ export function App({ bridge }: { bridge: Bridge }) {
         )}
       </header>
 
-      <div className="body" style={mode === 'mcp' ? { gridTemplateColumns: '1fr' } : undefined}>
+      <div className="body" style={mode !== 'http' ? { gridTemplateColumns: '1fr' } : undefined}>
         {mode === 'http' && (
           <Sidebar
             ws={ws}
@@ -256,7 +281,25 @@ export function App({ bridge }: { bridge: Bridge }) {
           />
         )}
         <main className="main">
-          {mode === 'mcp' ? (
+          {mode === 'capture' && bridge.capture ? (
+            <CaptureView
+              bridge={bridge}
+              capture={bridge.capture}
+              collections={ws.collections}
+              focusSessionId={captureFocus}
+              onNotice={flash}
+              onSaveAsRequest={(entry, cid) => {
+                const req = capturedToRequest(entry, '');
+                update((w) => {
+                  const [w2, id] = withCollection(w, cid ?? undefined);
+                  return { ...w2, requests: [...w2.requests, { ...req, collectionId: id }] };
+                });
+                setActiveId(req.id);
+                setMode('http');
+                flash({ text: `Saved ${req.name} as a request. Edit it or press Send to call it again.` });
+              }}
+            />
+          ) : mode === 'mcp' ? (
             <McpView bridge={bridge} servers={ws.mcpServers} onServersChange={(mcpServers) => update((w) => ({ ...w, mcpServers }))} />
           ) : active ? (
             <div className="split">

@@ -268,5 +268,6 @@ jobs:
           # Keeps anything you wrote when publishing the release on GitHub; adds the install notes below it.
           body_path: notes.md
           append_body: true
-          generate_release_notes: true
+          # GitHub adds its own changelog when the release is made in the UI; only add one for tag pushes.
+          generate_release_notes: ${{ github.event_name == 'push' }}
           files: files/*

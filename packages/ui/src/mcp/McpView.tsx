@@ -15,6 +15,7 @@ import {
   type McpTransportKind,
 } from '@restless/core';
 import { KeyValueTable } from '../components/KeyValueTable';
+import { SplitPane } from '../components/SplitPane';
 import { SchemaForm } from './SchemaForm';
 import { ToolResult } from './ToolResult';
 import { McpLog } from './McpLog';
@@ -352,7 +353,7 @@ function ToolsTab({ bridge, sessionId, tools }: { bridge: Bridge; sessionId: str
   const annotations = Object.entries(tool?.annotations ?? {}).filter(([k]) => k !== 'title');
 
   return (
-    <div className="mcp-split">
+    <SplitPane className="mcp-split" direction="columns" unit="px" defaultSize={240} minFirst={160} minSecond={320} storageKey="restless.split.mcp" label="Resize the list">
       <div className="mcp-list" role="listbox" aria-label="Tools">
         {tools.map((t) => (
           <div key={t.name} role="option" aria-selected={t.name === name} className={`mcp-item ${t.name === name ? 'active' : ''}`} onClick={() => setName(t.name)}>
@@ -419,7 +420,7 @@ function ToolsTab({ bridge, sessionId, tools }: { bridge: Bridge; sessionId: str
           </details>
         </div>
       )}
-    </div>
+    </SplitPane>
   );
 }
 
@@ -438,7 +439,7 @@ function ResourcesTab({ bridge, sessionId, catalog }: { bridge: Bridge; sessionI
   };
   if (catalog.resources.length + catalog.resourceTemplates.length === 0) return <div className="empty">This server lists no resources.</div>;
   return (
-    <div className="mcp-split">
+    <SplitPane className="mcp-split" direction="columns" unit="px" defaultSize={240} minFirst={160} minSecond={320} storageKey="restless.split.mcp" label="Resize the list">
       <div className="mcp-list">
         {catalog.resources.map((r) => (
           <div key={r.uri} className={`mcp-item ${uri === r.uri ? 'active' : ''}`} onClick={() => (setUri(r.uri), void read(r.uri))}>
@@ -470,7 +471,7 @@ function ResourcesTab({ bridge, sessionId, catalog }: { bridge: Bridge; sessionI
         {/\{[^}]+\}/.test(uri) && <p className="desc">Replace the {'{placeholders}'} in the template, then read it.</p>}
         <ToolResult res={res} error={err} />
       </div>
-    </div>
+    </SplitPane>
   );
 }
 
@@ -482,7 +483,7 @@ function PromptsTab({ bridge, sessionId, catalog }: { bridge: Bridge; sessionId:
   const prompt = catalog.prompts.find((p) => p.name === name);
   if (catalog.prompts.length === 0) return <div className="empty">This server lists no prompts.</div>;
   return (
-    <div className="mcp-split">
+    <SplitPane className="mcp-split" direction="columns" unit="px" defaultSize={240} minFirst={160} minSecond={320} storageKey="restless.split.mcp" label="Resize the list">
       <div className="mcp-list">
         {catalog.prompts.map((p) => (
           <div key={p.name} className={`mcp-item ${p.name === name ? 'active' : ''}`} onClick={() => (setName(p.name), setRes(null), setErr(null))}>
@@ -526,7 +527,7 @@ function PromptsTab({ bridge, sessionId, catalog }: { bridge: Bridge; sessionId:
           <ToolResult res={res} error={err} />
         </div>
       )}
-    </div>
+    </SplitPane>
   );
 }
 

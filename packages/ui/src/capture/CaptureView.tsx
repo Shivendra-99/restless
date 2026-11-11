@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildHar, isApiType, parseHar, type Bridge, type CaptureBridge, type CaptureBrowserStatus, type CapturedEntry, type CaptureSession, type Collection } from '@restless/core';
 import { Menu } from '../components/Menu';
+import { SplitPane } from '../components/SplitPane';
 import { errorText, formatMs, statusClass } from '../util';
 import { EntryDetail } from './EntryDetail';
 import { Timeline } from './Timeline';
@@ -321,7 +322,7 @@ export function CaptureView({ bridge, capture, collections, focus, onSaveAsReque
       ) : (
         <>
           <Timeline entries={shown} pages={pages} selectedId={selectedId} onSelect={setSelectedId} live={!!session.live && recordingHere} follow={follow} onFollow={setFollow} />
-          <div className="cap-split">
+          <SplitPane className="cap-split" direction="columns" defaultSize={0.42} minFirst={260} minSecond={320} storageKey="restless.split.capture" label="Resize the request list">
             <div className="cap-list">
               <div className="cap-filter">
                 <input className="input" placeholder="Filter by URL, method or status" aria-label="Filter captured requests" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -362,7 +363,7 @@ export function CaptureView({ bridge, capture, collections, focus, onSaveAsReque
               </div>
             </div>
             {selected ? <EntryDetail key={selected.id} entry={selected} collections={collections} onSaveAsRequest={onSaveAsRequest} /> : <div className="empty">Pick a request on the left or on the timeline.</div>}
-          </div>
+          </SplitPane>
         </>
       )}
     </div>

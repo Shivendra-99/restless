@@ -84,6 +84,7 @@ code, pre, .mono { font-family: var(--mono); font-size: 12.5px; }
 .save-state { font-size: 12px; color: var(--text-3); min-width: 54px; }
 
 .body { display: grid; grid-template-columns: 280px 1fr; min-height: 0; }
+.body.single { grid-template-columns: 1fr; }
 .sidebar { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
 .main { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--surface); }
 
@@ -210,18 +211,30 @@ label.field .hint { color: var(--text-3); font-size: 12px; }
 .urlbar .select { font-family: var(--mono); font-weight: 600; }
 .urlbar .url { font-family: var(--mono); font-size: 13px; height: 34px; }
 .urlbar .btn { height: 34px; padding: 0 18px; }
-.split { display: grid; flex: 1; min-height: 0; }
-.split.dragging { cursor: row-resize; user-select: none; }
+.split { display: grid; flex: 1; min-height: 0; min-width: 0; }
+.split.dragging { user-select: none; }
+.split-rows.dragging { cursor: row-resize; }
+.split-columns.dragging { cursor: col-resize; }
 .pane { display: flex; flex-direction: column; min-height: 0; }
 .pane-body { overflow: auto; flex: 1; padding: 10px 12px; }
 .pane + .pane { border-top: 1px solid var(--line); }
-/* The bar between request and response: a hairline that turns into a grip when you reach for it. */
-.split-handle { position: relative; display: grid; place-items: center; cursor: row-resize; touch-action: none; outline: none; }
-.split-handle::before { content: ''; position: absolute; left: 0; right: 0; top: 4px; border-top: 1px solid var(--line); }
-.split-grip { position: relative; width: 36px; height: 5px; border-radius: 3px; background: var(--line); transition: background 0.12s, width 0.12s; }
-.split-handle:hover .split-grip, .split.dragging .split-grip { background: var(--signal); width: 56px; }
-.split-handle:hover::before, .split.dragging .split-handle::before { border-top-color: color-mix(in srgb, var(--signal) 55%, transparent); }
-.split-handle:focus-visible .split-grip { background: var(--signal); width: 56px; outline: 2px solid var(--signal); outline-offset: 2px; }
+/* The bar between two parts: a hairline that turns into a grip when you reach for it. */
+.split-handle { position: relative; display: grid; place-items: center; touch-action: none; outline: none; z-index: 1; }
+.split-rows > .split-handle { cursor: row-resize; }
+.split-columns > .split-handle { cursor: col-resize; }
+.split-handle::before { content: ''; position: absolute; }
+.split-rows > .split-handle::before { left: 0; right: 0; top: 4px; border-top: 1px solid var(--line); }
+.split-columns > .split-handle::before { top: 0; bottom: 0; left: 4px; border-left: 1px solid var(--line); }
+.split-grip { position: relative; border-radius: 3px; background: var(--line); transition: background 0.12s, width 0.12s, height 0.12s; }
+.split-rows > .split-handle .split-grip { width: 36px; height: 5px; }
+.split-columns > .split-handle .split-grip { width: 5px; height: 36px; }
+.split-handle:hover .split-grip, .split.dragging > .split-handle .split-grip, .split-handle:focus-visible .split-grip { background: var(--signal); }
+.split-rows > .split-handle:hover .split-grip, .split-rows.dragging > .split-handle .split-grip, .split-rows > .split-handle:focus-visible .split-grip { width: 56px; }
+.split-columns > .split-handle:hover .split-grip, .split-columns.dragging > .split-handle .split-grip, .split-columns > .split-handle:focus-visible .split-grip { height: 56px; }
+.split-handle:hover::before, .split.dragging > .split-handle::before { border-color: color-mix(in srgb, var(--signal) 55%, transparent); }
+.split-handle:focus-visible .split-grip { outline: 2px solid var(--signal); outline-offset: 2px; }
+/* The bar draws the dividing line, so the parts don't need their own. */
+.split-columns > .sidebar, .split-columns > .cap-list, .split-columns > .mcp-list { border-right: 0; }
 @media (prefers-reduced-motion: reduce) { .split-grip { transition: none; } }
 
 .kv { width: 100%; border-collapse: collapse; }
@@ -382,9 +395,8 @@ label.field .hint { color: var(--text-3); font-size: 12px; }
 .token-bar { height: 6px; background: var(--signal); border-radius: 3px; }
 
 @media (max-width: 760px) {
-  .body { grid-template-columns: 1fr; }
-  .sidebar { display: none; }
-  .mcp-split { grid-template-columns: 1fr; }
+  .body, .mcp-split { grid-template-columns: 1fr !important; }
+  .sidebar, .body > .split-handle, .mcp-split > .split-handle { display: none; }
   .conn-row { grid-template-columns: 1fr; }
 }
 
@@ -462,4 +474,4 @@ label.field .hint { color: var(--text-3); font-size: 12px; }
 .cap-img { max-width: 100%; border-radius: var(--r-sm); background: repeating-conic-gradient(var(--line-soft) 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
 .muted { color: var(--text-3); font-size: 13px; }
 .plain-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; color: var(--text-2); font-size: 13px; }
-@media (max-width: 900px) { .cap-split { grid-template-columns: 1fr; } .cap-list { max-height: 40vh; } }
+@media (max-width: 900px) { .cap-split { grid-template-columns: 1fr !important; } .cap-split > .split-handle { display: none; } .cap-list { max-height: 40vh; } }

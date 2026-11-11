@@ -218,7 +218,7 @@ export function buildHar(session: CaptureSession, entries: CapturedEntry[]): obj
   return {
     log: {
       version: '1.2',
-      creator: { name: 'Restless', version: '0.4.0' },
+      creator: { name: 'Restless', version: '0.4.1' },
       pages: [],
       entries: entries.map((e) => {
         let query: HarNV[] = [];

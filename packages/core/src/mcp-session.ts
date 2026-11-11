@@ -6,7 +6,7 @@ import type { JSONRPCMessage, MessageExtraInfo } from '@modelcontextprotocol/sdk
 import type { jsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/types.js';
 import type { McpLogDirection, McpLogEntry } from './types';
 
-export const CLIENT_INFO = { name: 'restless', version: '0.4.0' };
+export const CLIENT_INFO = { name: 'restless', version: '0.4.1' };
 
 export interface McpConnectInfo {
   sessionId: string;

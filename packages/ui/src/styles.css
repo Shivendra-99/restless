@@ -210,10 +210,19 @@ label.field .hint { color: var(--text-3); font-size: 12px; }
 .urlbar .select { font-family: var(--mono); font-weight: 600; }
 .urlbar .url { font-family: var(--mono); font-size: 13px; height: 34px; }
 .urlbar .btn { height: 34px; padding: 0 18px; }
-.split { display: grid; grid-template-rows: minmax(160px, 42%) 1fr; flex: 1; min-height: 0; }
+.split { display: grid; flex: 1; min-height: 0; }
+.split.dragging { cursor: row-resize; user-select: none; }
 .pane { display: flex; flex-direction: column; min-height: 0; }
 .pane-body { overflow: auto; flex: 1; padding: 10px 12px; }
 .pane + .pane { border-top: 1px solid var(--line); }
+/* The bar between request and response: a hairline that turns into a grip when you reach for it. */
+.split-handle { position: relative; display: grid; place-items: center; cursor: row-resize; touch-action: none; outline: none; }
+.split-handle::before { content: ''; position: absolute; left: 0; right: 0; top: 4px; border-top: 1px solid var(--line); }
+.split-grip { position: relative; width: 36px; height: 5px; border-radius: 3px; background: var(--line); transition: background 0.12s, width 0.12s; }
+.split-handle:hover .split-grip, .split.dragging .split-grip { background: var(--signal); width: 56px; }
+.split-handle:hover::before, .split.dragging .split-handle::before { border-top-color: color-mix(in srgb, var(--signal) 55%, transparent); }
+.split-handle:focus-visible .split-grip { background: var(--signal); width: 56px; outline: 2px solid var(--signal); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .split-grip { transition: none; } }
 
 .kv { width: 100%; border-collapse: collapse; }
 .kv td { padding: 2px 4px 2px 0; }

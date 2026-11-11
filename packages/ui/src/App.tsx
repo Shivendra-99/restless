@@ -24,6 +24,7 @@ import { useWorkspace } from './state';
 import { Sidebar } from './components/Sidebar';
 import { RequestEditor, type Location } from './components/RequestEditor';
 import { ResponseView } from './components/ResponseView';
+import { SplitPane } from './components/SplitPane';
 import { VariablesDialog, type VariablesTarget } from './components/VariablesDialog';
 import { ImportDialog } from './components/ImportDialog';
 import { McpView } from './mcp/McpView';
@@ -294,50 +295,56 @@ export function App({ bridge }: { bridge: Bridge }) {
           ) : mode === 'mcp' ? (
             <McpView bridge={bridge} servers={ws.mcpServers} onServersChange={(mcpServers) => update((w) => ({ ...w, mcpServers }))} />
           ) : active ? (
-            <div className="split">
-              <RequestEditor
-                key={active.id}
-                item={active}
-                onChange={patchRequest}
-                onSend={() => void send()}
-                sending={sendingId === active.id}
-                onCancel={bridge.cancelHttp}
-                vars={vars}
-                onOpenVariable={(name) => {
-                  const v = vars.get(name);
-                  if (v?.scope === 'environment' && ws.activeEnvironmentId) {
-                    setVarsOpen({ scope: 'environment', id: ws.activeEnvironmentId, focus: name });
-                    return;
-                  }
-                  // Not set yet: add an empty global row for it so the dialog opens ready to type the value.
-                  if (!v) update((w) => (w.globals.some((g) => g.key === name) ? w : { ...w, globals: [...w.globals, { key: name, value: '', enabled: true }] }));
-                  setVarsOpen({ scope: 'global', focus: name });
-                }}
-                locations={locations}
-                onNotice={flash}
-              />
-              <ResponseView
-                key={`r-${active.id}`}
-                response={exchange?.response ?? null}
-                sent={exchange?.sent ?? null}
-                sending={sendingId === active.id}
-                globalNames={globalNames}
-                onSaveVariable={(pick, name, keep) => {
-                  const cap: Capture = { id: newId(), variable: name, from: pick.from, path: pick.path };
-                  update((w) => ({
-                    ...w,
-                    globals: setGlobal(w.globals, name, pick.value),
-                    requests: keep
-                      ? w.requests.map((r) => (r.id === active.id ? { ...r, captures: [...(r.captures ?? []).filter((c) => c.variable !== name), cap] } : r))
-                      : w.requests,
-                  }));
-                  flash({
-                    text: `Saved {{${name}}}. Use it in any request${keep ? '; it updates each time this request is sent' : ''}.`,
-                    action: { label: 'View', run: () => setVarsOpen({ scope: 'global', focus: name }) },
-                  });
-                }}
-              />
-            </div>
+            <SplitPane
+              storageKey="restless.split.request"
+              label="Resize request and response"
+              top={
+                <RequestEditor
+                  key={active.id}
+                  item={active}
+                  onChange={patchRequest}
+                  onSend={() => void send()}
+                  sending={sendingId === active.id}
+                  onCancel={bridge.cancelHttp}
+                  vars={vars}
+                  onOpenVariable={(name) => {
+                    const v = vars.get(name);
+                    if (v?.scope === 'environment' && ws.activeEnvironmentId) {
+                      setVarsOpen({ scope: 'environment', id: ws.activeEnvironmentId, focus: name });
+                      return;
+                    }
+                    // Not set yet: add an empty global row for it so the dialog opens ready to type the value.
+                    if (!v) update((w) => (w.globals.some((g) => g.key === name) ? w : { ...w, globals: [...w.globals, { key: name, value: '', enabled: true }] }));
+                    setVarsOpen({ scope: 'global', focus: name });
+                  }}
+                  locations={locations}
+                  onNotice={flash}
+                />
+              }
+              bottom={
+                <ResponseView
+                  key={`r-${active.id}`}
+                  response={exchange?.response ?? null}
+                  sent={exchange?.sent ?? null}
+                  sending={sendingId === active.id}
+                  globalNames={globalNames}
+                  onSaveVariable={(pick, name, keep) => {
+                    const cap: Capture = { id: newId(), variable: name, from: pick.from, path: pick.path };
+                    update((w) => ({
+                      ...w,
+                      globals: setGlobal(w.globals, name, pick.value),
+                      requests: keep
+                        ? w.requests.map((r) => (r.id === active.id ? { ...r, captures: [...(r.captures ?? []).filter((c) => c.variable !== name), cap] } : r))
+                        : w.requests,
+                    }));
+                    flash({
+                      text: `Saved {{${name}}}. Use it in any request${keep ? '; it updates each time this request is sent' : ''}.`,
+                      action: { label: 'View', run: () => setVarsOpen({ scope: 'global', focus: name }) },
+                    });
+                  }}
+                />
+              }
+            />
           ) : (
             <div className="empty">
               <h2>Start with a request</h2>

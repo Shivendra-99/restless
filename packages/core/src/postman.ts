@@ -1,10 +1,11 @@
-import { HTTP_METHODS, newId, newRequest, type Auth, type Capture, type Collection, type Environment, type EnvVar, type HttpMethod, type KeyValue, type RequestItem } from './types';
+import { HTTP_METHODS, newAuth, newId, newRequest, type Auth, type Capture, type Collection, type Environment, type EnvVar, type HttpMethod, type FormField, type KeyValue, type RequestItem } from './types';
+import { guessContentType } from './files';
 import { collectionFolders, formatPath, parsePath } from './workspace';
 
 // Minimal shapes of the Postman Collection v2.0/v2.1 format we read and write.
-interface PmKV { key?: string; value?: string; disabled?: boolean; type?: string; enabled?: boolean }
+interface PmKV { key?: string; value?: string; disabled?: boolean; type?: string; enabled?: boolean; src?: string | string[] | null; contentType?: string }
 interface PmUrl { raw?: string; query?: PmKV[] }
-interface PmBody { mode?: string; raw?: string; urlencoded?: PmKV[]; formdata?: PmKV[]; graphql?: { query?: string; variables?: string }; options?: { raw?: { language?: string } } }
+interface PmBody { mode?: string; raw?: string; file?: { src?: string | null }; urlencoded?: PmKV[]; formdata?: PmKV[]; graphql?: { query?: string; variables?: string }; options?: { raw?: { language?: string } } }
 interface PmAuth { type?: string; [k: string]: unknown }
 interface PmRequest { method?: string; header?: PmKV[] | string; url?: string | PmUrl; body?: PmBody; auth?: PmAuth }
 interface PmEvent { listen?: string; script?: { exec?: string[] | string; type?: string } }
@@ -41,11 +42,62 @@ function convertAuth(auth: PmAuth | undefined, warnings: string[], where: string
     case 'basic': return { type: 'basic', username: authParam(auth, 'username'), password: authParam(auth, 'password') };
     case 'apikey':
       return { type: 'apikey', key: authParam(auth, 'key'), value: authParam(auth, 'value'), in: authParam(auth, 'in') === 'query' ? 'query' : 'header' };
+    case 'digest': return { type: 'digest', username: authParam(auth, 'username'), password: authParam(auth, 'password') };
+    case 'oauth1': {
+      const method = authParam(auth, 'signatureMethod');
+      return {
+        type: 'oauth1',
+        consumerKey: authParam(auth, 'consumerKey'),
+        consumerSecret: authParam(auth, 'consumerSecret'),
+        token: authParam(auth, 'token'),
+        tokenSecret: authParam(auth, 'tokenSecret'),
+        signatureMethod: method === 'HMAC-SHA256' || method === 'PLAINTEXT' ? method : 'HMAC-SHA1',
+        realm: authParam(auth, 'realm'),
+      };
+    }
+    case 'oauth2': {
+      const grant = authParam(auth, 'grant_type');
+      return {
+        ...(newAuth('oauth2') as Extract<Auth, { type: 'oauth2' }>),
+        grant: grant === 'password_credentials' ? 'password' : grant === 'client_credentials' ? 'client_credentials' : 'authorization_code',
+        tokenUrl: authParam(auth, 'accessTokenUrl'),
+        authUrl: authParam(auth, 'authUrl'),
+        redirectUri: authParam(auth, 'redirect_uri') || 'http://localhost/callback',
+        clientId: authParam(auth, 'clientId'),
+        clientSecret: authParam(auth, 'clientSecret'),
+        scope: authParam(auth, 'scope'),
+        username: authParam(auth, 'username'),
+        password: authParam(auth, 'password'),
+        clientAuth: authParam(auth, 'client_authentication') === 'body' ? 'body' : 'basic',
+        token: authParam(auth, 'accessToken'),
+        prefix: authParam(auth, 'headerPrefix').trim() || 'Bearer',
+      };
+    }
+    case 'hawk': return { type: 'hawk', id: authParam(auth, 'authId'), key: authParam(auth, 'authKey'), algorithm: authParam(auth, 'algorithm') === 'sha1' ? 'sha1' : 'sha256', ext: authParam(auth, 'extraData') };
+    case 'awsv4':
+      return { type: 'aws', accessKey: authParam(auth, 'accessKey'), secretKey: authParam(auth, 'secretKey'), region: authParam(auth, 'region') || 'us-east-1', service: authParam(auth, 'service'), sessionToken: authParam(auth, 'sessionToken') };
+    case 'jwt': {
+      const alg = authParam(auth, 'algorithm');
+      const base = newAuth('jwt') as Extract<Auth, { type: 'jwt' }>;
+      return {
+        ...base,
+        algorithm: (['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'ES256', 'ES384'].includes(alg) ? alg : 'HS256') as typeof base.algorithm,
+        secret: authParam(auth, alg.startsWith('HS') || !alg ? 'secret' : 'privateKey'),
+        secretBase64: authParam(auth, 'isSecretBase64Encoded') === 'true',
+        payload: authParam(auth, 'payload') || '{}',
+        prefix: authParam(auth, 'headerPrefix').trim() || 'Bearer',
+      };
+    }
     default:
       warnings.push(`${where}: auth type "${auth.type}" not supported yet`);
       return null;
   }
 }
+
+const fileFromSrc = (src: string, contentType?: string) => {
+  const name = src.slice(Math.max(src.lastIndexOf('/'), src.lastIndexOf('\\')) + 1) || src;
+  return { id: newId(), name, path: src, contentType: contentType || guessContentType(name) };
+};
 
 // ---------------------------------------------------------------- scripts → captures
 
@@ -127,8 +179,16 @@ function convertRequest(name: string, folder: string, item: PmItem, inheritedAut
     try { variables = body.graphql?.variables ? JSON.parse(body.graphql.variables) : {}; } catch { /* keep {} */ }
     req.body = { mode: 'json', text: JSON.stringify({ query: body.graphql?.query ?? '', variables }, null, 2), form: [] };
   } else if (body?.mode === 'formdata') {
-    warnings.push(`${name}: multipart form-data body not supported yet (fields kept as urlencoded)`);
-    req.body = { mode: 'form-urlencoded', text: '', form: kv((body.formdata ?? []).filter((f) => f.type !== 'file')) };
+    const fields: FormField[] = (body.formdata ?? []).filter((f) => f && f.key).map((f) => {
+      const base = { key: String(f.key), value: f.type === 'file' ? '' : String(f.value ?? ''), enabled: !f.disabled };
+      if (f.type !== 'file') return base;
+      const src = Array.isArray(f.src) ? f.src[0] : f.src;
+      return { ...base, file: src ? fileFromSrc(src, f.contentType) : null };
+    });
+    req.body = { mode: 'multipart', text: '', form: [], multipart: fields };
+    req.headers = req.headers.filter((h) => h.key.toLowerCase() !== 'content-type');
+  } else if (body?.mode === 'file') {
+    req.body = { mode: 'file', text: '', form: [], file: body.file?.src ? fileFromSrc(body.file.src) : null };
   }
 
   const own = convertAuth(pm.auth, warnings, name);
@@ -206,6 +266,22 @@ function pmAuth(a: Auth): PmAuth {
     case 'bearer': return { type: 'bearer', bearer: [{ key: 'token', value: a.token, type: 'string' }] };
     case 'basic': return { type: 'basic', basic: [{ key: 'username', value: a.username, type: 'string' }, { key: 'password', value: a.password, type: 'string' }] };
     case 'apikey': return { type: 'apikey', apikey: [{ key: 'key', value: a.key, type: 'string' }, { key: 'value', value: a.value, type: 'string' }, { key: 'in', value: a.in, type: 'string' }] };
+    case 'digest': return { type: 'digest', digest: [{ key: 'username', value: a.username, type: 'string' }, { key: 'password', value: a.password, type: 'string' }] };
+    case 'oauth1':
+      return { type: 'oauth1', oauth1: Object.entries({ consumerKey: a.consumerKey, consumerSecret: a.consumerSecret, token: a.token, tokenSecret: a.tokenSecret, signatureMethod: a.signatureMethod, realm: a.realm, version: '1.0', addParamsToHeader: 'true' }).map(([key, value]) => ({ key, value, type: 'string' })) };
+    case 'oauth2':
+      return {
+        type: 'oauth2',
+        oauth2: Object.entries({
+          grant_type: a.grant === 'password' ? 'password_credentials' : a.grant,
+          accessTokenUrl: a.tokenUrl, authUrl: a.authUrl, redirect_uri: a.redirectUri, clientId: a.clientId, clientSecret: a.clientSecret, scope: a.scope,
+          username: a.username, password: a.password, client_authentication: a.clientAuth === 'body' ? 'body' : 'header', accessToken: a.token, headerPrefix: a.prefix, addTokenTo: 'header',
+        }).map(([key, value]) => ({ key, value, type: 'string' })),
+      };
+    case 'hawk': return { type: 'hawk', hawk: Object.entries({ authId: a.id, authKey: a.key, algorithm: a.algorithm, extraData: a.ext }).map(([key, value]) => ({ key, value, type: 'string' })) };
+    case 'aws': return { type: 'awsv4', awsv4: Object.entries({ accessKey: a.accessKey, secretKey: a.secretKey, region: a.region, service: a.service, sessionToken: a.sessionToken }).map(([key, value]) => ({ key, value, type: 'string' })) };
+    case 'jwt':
+      return { type: 'jwt', jwt: Object.entries({ algorithm: a.algorithm, [a.algorithm.startsWith('HS') ? 'secret' : 'privateKey']: a.secret, isSecretBase64Encoded: String(a.secretBase64), payload: a.payload, headerPrefix: a.prefix, addTokenTo: 'header' }).map(([key, value]) => ({ key, value, type: 'string' })) };
     default: return { type: 'noauth' };
   }
 }
@@ -239,6 +315,16 @@ function pmRequestItem(r: RequestItem) {
   if (r.body.mode === 'json') request.body = { mode: 'raw', raw: r.body.text, options: { raw: { language: 'json' } } };
   else if (r.body.mode === 'text') request.body = { mode: 'raw', raw: r.body.text };
   else if (r.body.mode === 'form-urlencoded') request.body = { mode: 'urlencoded', urlencoded: pmKV(r.body.form) };
+  else if (r.body.mode === 'multipart') {
+    request.body = {
+      mode: 'formdata',
+      formdata: (r.body.multipart ?? []).filter((f) => f.key).map((f) => ({
+        key: f.key,
+        ...(f.file === undefined ? { value: f.value, type: 'text' } : { type: 'file', src: f.file?.path ?? f.file?.name ?? null }),
+        ...(f.enabled ? {} : { disabled: true }),
+      })),
+    };
+  } else if (r.body.mode === 'file') request.body = { mode: 'file', file: { src: r.body.file?.path ?? r.body.file?.name ?? null } };
   const exec = capturesToScript(r.captures ?? []);
   return { name: r.name, request, ...(exec.length ? { event: [{ listen: 'test', script: { type: 'text/javascript', exec } }] } : {}) };
 }

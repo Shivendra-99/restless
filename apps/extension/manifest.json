@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Restless: API & MCP client",
   "short_name": "Restless",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Local-first API and MCP client. No login, no cloud. Your requests stay in your browser.",
   "minimum_chrome_version": "120",
   "icons": {

@@ -7,7 +7,8 @@ import {
   newCollection,
   newId,
   newRequest,
-  resolveRequest,
+  prepareRequest,
+  sendPrepared,
   resolveVariables,
   runCaptures,
   setGlobal,
@@ -140,12 +141,17 @@ export function App({ bridge }: { bridge: Bridge }) {
 
   const send = useCallback(async () => {
     if (!ws || !active || sendingId) return;
-    const { request } = resolveRequest(active, variableMap(ws));
-    setSendingId(active.id);
     const item = active;
+    setSendingId(item.id);
+    // Until the request is ready, an error has nothing sent to show beside it (a bad JWT key, say).
+    let request: ResolvedRequest = { method: item.method, url: item.url, headers: [] };
     try {
-      const response = await bridge.sendHttp(request);
-      setExchanges((p) => ({ ...p, [item.id]: { response, sent: request } }));
+      const prepared = await prepareRequest(item, variableMap(ws));
+      request = prepared.request;
+      const exchange = await sendPrepared(bridge.sendHttp, prepared);
+      const response = exchange.response;
+      request = exchange.sent;
+      setExchanges((p) => ({ ...p, [item.id]: { response, sent: exchange.sent } }));
       const h: HistoryEntry = { id: newId(), at: Date.now(), method: request.method, url: request.url, status: response.status, durationMs: response.timings.total, requestId: item.id };
       const preview = runCaptures(item, response, ws.globals);
       update((w) => ({ ...w, history: [h, ...w.history].slice(0, 200), globals: runCaptures(item, response, w.globals).globals }));
@@ -313,6 +319,8 @@ export function App({ bridge }: { bridge: Bridge }) {
                 onSend={() => void send()}
                 sending={sendingId === active.id}
                 onCancel={bridge.cancelHttp}
+                bridge={bridge}
+                saveGlobal={(name, value) => update((w) => ({ ...w, globals: setGlobal(w.globals, name, value) }))}
                 vars={vars}
                 onOpenVariable={(name) => {
                   const v = vars.get(name);

@@ -1,4 +1,5 @@
-import type { Environment, KeyValue, RequestItem, ResolvedRequest } from './types';
+import type { Auth, Environment, KeyValue, RequestItem, ResolvedPart, ResolvedRequest } from './types';
+import { fileContentType } from './files';
 
 const VAR_RE = /\{\{\s*([^{}\s]+)\s*\}\}/g;
 
@@ -63,6 +64,8 @@ function toBase64(s: string): string {
 export interface ResolveResult {
   request: ResolvedRequest;
   missing: string[];
+  /** The request's auth with variables filled in. Signed kinds (JWT, OAuth 1.0, Hawk, AWS, Digest) are added by prepareRequest. */
+  auth: Auth;
 }
 
 /** Apply environment variables, params, auth and body defaults. Pure, so every shell sends identical bytes. */
@@ -73,14 +76,17 @@ export function resolveRequest(item: RequestItem, vars: VarMap): ResolveResult {
   const params: KeyValue[] = enabled(item.params).map((p) => ({ ...p, key: t(p.key), value: t(p.value) }));
   const headers: [string, string][] = enabled(item.headers).map((h) => [t(h.key), t(h.value)]);
 
-  const auth = item.auth;
+  // Every text setting of the auth can hold {{variables}}.
+  const auth = Object.fromEntries(Object.entries(item.auth).map(([k, v]) => [k, typeof v === 'string' && k !== 'type' ? t(v) : v])) as Auth;
   if (auth.type === 'bearer' && auth.token && !hasHeader(headers, 'authorization')) {
-    headers.push(['Authorization', `Bearer ${t(auth.token)}`]);
+    headers.push(['Authorization', `Bearer ${auth.token}`]);
   } else if (auth.type === 'basic' && !hasHeader(headers, 'authorization')) {
-    headers.push(['Authorization', `Basic ${toBase64(`${t(auth.username)}:${t(auth.password)}`)}`]);
+    headers.push(['Authorization', `Basic ${toBase64(`${auth.username}:${auth.password}`)}`]);
   } else if (auth.type === 'apikey' && auth.key) {
-    if (auth.in === 'query') params.push({ key: t(auth.key), value: t(auth.value), enabled: true });
-    else headers.push([t(auth.key), t(auth.value)]);
+    if (auth.in === 'query') params.push({ key: auth.key, value: auth.value, enabled: true });
+    else headers.push([auth.key, auth.value]);
+  } else if (auth.type === 'oauth2' && auth.token && !hasHeader(headers, 'authorization')) {
+    headers.push(['Authorization', `${auth.prefix.trim() || 'Bearer'} ${auth.token}`]);
   }
 
   let body: string | undefined;
@@ -95,12 +101,31 @@ export function resolveRequest(item: RequestItem, vars: VarMap): ResolveResult {
     if (!hasHeader(headers, 'content-type')) headers.push(['Content-Type', 'application/x-www-form-urlencoded']);
   }
 
+  const sendsBody = item.method !== 'GET' && item.method !== 'HEAD';
+  let multipart: ResolvedPart[] | undefined;
+  let file: ResolvedRequest['file'];
+  if (b.mode === 'multipart' && sendsBody) {
+    multipart = [];
+    for (const f of b.multipart ?? []) {
+      if (!f.enabled || !f.key.trim()) continue;
+      if (f.file) multipart.push({ name: t(f.key), file: f.file });
+      else if (f.file === undefined) multipart.push({ name: t(f.key), value: t(f.value) });
+      // file === null: a file field with nothing chosen yet is left out
+    }
+    // The engine writes Content-Type itself, because only it knows the boundary between the parts.
+    for (let i = headers.length - 1; i >= 0; i--) if (headers[i][0].toLowerCase() === 'content-type') headers.splice(i, 1);
+  } else if (b.mode === 'file' && b.file && sendsBody) {
+    file = b.file;
+    if (!hasHeader(headers, 'content-type')) headers.push(['Content-Type', fileContentType(b.file)]);
+  }
+
   let url = t(item.url.trim());
   if (url && !/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) url = `http://${url}`;
   url = buildUrl(url, params);
 
   return {
-    request: { method: item.method, url, headers, body: item.method === 'GET' || item.method === 'HEAD' ? undefined : body },
+    request: { method: item.method, url, headers, body: sendsBody ? body : undefined, ...(multipart ? { multipart } : {}), ...(file ? { file } : {}) },
     missing: [...missing],
+    auth,
   };
 }

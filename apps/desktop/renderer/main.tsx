@@ -37,6 +37,8 @@ const bridge: Bridge = {
     onLog: (cb) => native.onMcpLog(cb),
   },
   saveFile: (name, text) => call('file:save', name, text),
+  pickUpload: () => call('upload:pick'),
+  authorize: (url, redirectUri) => call('oauth:authorize', url, redirectUri),
   // Captures come from the Restless browser window (or HAR files).
   capture: {
     listSessions: () => call('capture:list'),

@@ -119,12 +119,11 @@ export function variableMap(ws: Workspace): Record<string, string> {
 /** Names of {{variables}} a request refers to, in order of first use. */
 export function usedVariables(item: RequestItem): string[] {
   const texts: string[] = [item.url];
-  for (const kv of [...item.params, ...item.headers, ...item.body.form]) if (kv.enabled) texts.push(kv.key, kv.value);
+  for (const kv of [...item.params, ...item.headers]) if (kv.enabled) texts.push(kv.key, kv.value);
+  if (item.body.mode === 'form-urlencoded') for (const kv of item.body.form) if (kv.enabled) texts.push(kv.key, kv.value);
+  if (item.body.mode === 'multipart') for (const f of item.body.multipart ?? []) if (f.enabled) texts.push(f.key, f.file === undefined ? f.value : '');
   if (item.body.mode === 'json' || item.body.mode === 'text') texts.push(item.body.text);
-  const a = item.auth;
-  if (a.type === 'bearer') texts.push(a.token);
-  if (a.type === 'basic') texts.push(a.username, a.password);
-  if (a.type === 'apikey') texts.push(a.key, a.value);
+  for (const [k, v] of Object.entries(item.auth)) if (k !== 'type' && typeof v === 'string') texts.push(v);
   const seen = new Set<string>();
   for (const t of texts) for (const name of findVariables(t)) if (!name.startsWith('$')) seen.add(name);
   return [...seen];

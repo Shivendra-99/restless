@@ -1,6 +1,6 @@
 // The contract between the shared UI and a shell (desktop, extension, CLI).
 // The UI never calls fetch, spawns processes or touches files itself; it goes through a Bridge.
-import type { HttpResponse, McpLogEntry, McpServerConfig, ResolvedRequest, Workspace } from './types';
+import type { FileRef, HttpResponse, McpLogEntry, McpServerConfig, ResolvedRequest, Workspace } from './types';
 import type { McpCallResult, McpCatalog, McpConnectInfo } from './mcp-session';
 import type { CapturedEntry, CaptureSession } from './capture';
 
@@ -79,6 +79,15 @@ export interface Bridge {
 
   /** Desktop only: open a file picker and return its text. */
   pickFile?(accept: string[]): Promise<{ name: string; text: string } | null>;
+
+  /** Desktop only: choose a file to upload with a request. Only its path is kept; it is read when the request is sent. */
+  pickUpload?(): Promise<FileRef | null>;
+
+  /**
+   * Desktop only: show a sign-in page in its own window and resolve to the address it finally sends the browser
+   * to, once that address starts with `redirectUri`. Rejects when the window is closed first.
+   */
+  authorize?(url: string, redirectUri: string): Promise<string>;
 
   /** Network capture (desktop: the Restless browser; everywhere: HAR files). */
   capture?: CaptureBridge;

@@ -1,7 +1,7 @@
 // Extension HTTP engine. Extension pages with host permission are not bound by CORS.
 // Headers the browser forbids in fetch() (Cookie, Origin, Referer, Host, User-Agent…) are applied
 // with a short-lived declarativeNetRequest session rule scoped to this extension and the target host.
-import type { HttpResponse, ResolvedRequest } from '@restless/core';
+import { fileContentType, recallFile, type FileRef, type HttpResponse, type ResolvedRequest } from '@restless/core';
 
 const FORBIDDEN = new Set([
   'accept-charset', 'accept-encoding', 'access-control-request-headers', 'access-control-request-method', 'connection',
@@ -27,6 +27,24 @@ export async function ensureHostAccess(url: string): Promise<void> {
   if (!granted) throw new Error(`Restless needs permission to reach ${u.hostname}. Allow it when Chrome asks, then send again.`);
 }
 
+/** A file picked earlier in this tab. Browsers give an extension the file itself, not a path, so it doesn't outlive the page. */
+function upload(f: FileRef): Blob {
+  const blob = recallFile(f.id);
+  if (!blob) throw new Error(`Choose the file "${f.name}" again. A browser extension can't reopen a file after the page was reloaded.`);
+  return blob.slice(0, blob.size, fileContentType(f));
+}
+
+function payload(r: ResolvedRequest): BodyInit | undefined {
+  if (r.file) return upload(r.file);
+  if (!r.multipart) return r.body;
+  const form = new FormData();
+  for (const p of r.multipart) {
+    if ('file' in p) form.append(p.name, upload(p.file), p.file.name);
+    else form.append(p.name, p.value);
+  }
+  return form;
+}
+
 let current: AbortController | null = null;
 
 export function cancel() {
@@ -36,12 +54,15 @@ export function cancel() {
 export async function sendViaFetch(r: ResolvedRequest): Promise<HttpResponse> {
   // Permission prompt first, while we are still inside the click's user gesture.
   await ensureHostAccess(r.url);
+  const body = payload(r);
 
   const allowed = new Headers();
   const special: [string, string][] = [];
   const dropped: string[] = [];
   for (const [k, v] of r.headers) {
     if (!k) continue;
+    // fetch writes multipart's Content-Type itself: only it knows the boundary.
+    if (r.multipart && k.toLowerCase() === 'content-type') continue;
     if (!isForbidden(k)) {
       try {
         allowed.append(k, v);
@@ -88,7 +109,7 @@ export async function sendViaFetch(r: ResolvedRequest): Promise<HttpResponse> {
     const res = await fetch(r.url, {
       method: r.method,
       headers: allowed,
-      body: r.body,
+      body,
       redirect: r.followRedirects === false ? 'manual' : 'follow',
       // Isolated from the browser's own cookies by default, like a real API client.
       credentials: 'omit',

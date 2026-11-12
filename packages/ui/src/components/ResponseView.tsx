@@ -169,6 +169,12 @@ export function ResponseView({ response, sent, sending, globalNames, onSaveVaria
             </p>
             <HeaderTable headers={sent.headers} />
             {sent.body && <pre className="code-view" style={{ marginTop: 10 }}>{sent.body}</pre>}
+            {sent.multipart && (
+              <pre className="code-view" style={{ marginTop: 10 }}>
+                {sent.multipart.map((p) => ('file' in p ? `${p.name}: (file) ${p.file.path ?? p.file.name}` : `${p.name}: ${p.value}`)).join('\n') || '(no fields)'}
+              </pre>
+            )}
+            {sent.file && <pre className="code-view" style={{ marginTop: 10 }}>(file) {sent.file.path ?? sent.file.name}</pre>}
           </>
         )}
         {tab === 'curl' && (

@@ -6,7 +6,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { newId, newRequest, normalizeWorkspace, resolveRequest, type McpLogEntry } from '@restless/core';
+import { createHash, createVerify, generateKeyPairSync } from 'node:crypto';
+import { newAuth, newId, newRequest, normalizeWorkspace, oauth2TokenRequest, prepareRequest, signJwt, readOAuth2Token, resolveRequest, sendPrepared, type Auth, type McpLogEntry } from '@restless/core';
 import { sendHttp } from '../src/main/http-engine';
 import { McpManager } from '../src/main/mcp-manager';
 import { FileWorkspaceStore } from '../src/main/storage';
@@ -36,6 +37,47 @@ try {
     assert.equal(res.status, 200);
     assert.equal(JSON.parse(res.body)[0].name, 'Asha');
     assert.ok(res.timings.total > 0 && res.timings.ttfb !== undefined && res.timings.connect !== undefined);
+  });
+
+  await check('Uploads: multipart with text and a binary file, and a file as the whole body', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'restless-up-'));
+    const bytes = Buffer.from(Array.from({ length: 70_000 }, (_, i) => (i * 31) % 256)); // every byte value, with CR LF pairs inside
+    const file = path.join(dir, 'pic "1".bin');
+    await fs.writeFile(file, bytes);
+    const sha = createHash('sha256').update(bytes).digest('hex');
+    const ref = { id: 'f', name: path.basename(file), path: file, contentType: 'image/png' };
+
+    const form = newRequest({ method: 'POST', url: 'http://localhost:4545/upload', body: { mode: 'multipart', text: '', form: [], multipart: [{ key: 'title', value: 'नमस्ते {{who}}', enabled: true }, { key: 'photo', value: '', enabled: true, file: ref }] } });
+    const a = JSON.parse((await sendHttp(resolveRequest(form, { who: 'Asha' }).request)).body);
+    assert.deepEqual(a.parts, [{ name: 'title', value: 'नमस्ते Asha' }, { name: 'photo', filename: 'pic %221%22.bin', contentType: 'image/png', size: bytes.length, sha256: sha }]);
+
+    const whole = newRequest({ method: 'PUT', url: 'http://localhost:4545/upload', body: { mode: 'file', text: '', form: [], file: ref } });
+    const b = JSON.parse((await sendHttp(resolveRequest(whole, {}).request)).body);
+    assert.deepEqual(b, { contentType: 'image/png', size: bytes.length, sha256: sha });
+
+    // The file is read at send time: a changed file is sent changed, a missing one is explained.
+    await fs.writeFile(file, 'new');
+    assert.equal(JSON.parse((await sendHttp(resolveRequest(whole, {}).request)).body).size, 3);
+    await fs.rm(dir, { recursive: true });
+    await assert.rejects(sendHttp(resolveRequest(whole, {}).request), /no longer there/);
+  });
+
+  await check('Digest auth answers the 401 challenge; OAuth 2.0 client credentials gets a working token', async () => {
+    const digest = newRequest({ url: 'http://localhost:4545/digest?x=1', auth: { type: 'digest', username: 'asha', password: 'secret' } });
+    const ok = await sendPrepared(sendHttp, await prepareRequest(digest, {}));
+    assert.equal(ok.response.status, 200);
+    const bad = await sendPrepared(sendHttp, await prepareRequest({ ...digest, auth: { type: 'digest', username: 'asha', password: 'nope' } }, {}));
+    assert.equal(bad.response.status, 401);
+
+    const oauth = { ...(newAuth('oauth2') as Extract<Auth, { type: 'oauth2' }>), tokenUrl: 'http://localhost:4545/oauth/token', clientId: 'demo-app', clientSecret: 'demo-secret' };
+    const token = readOAuth2Token(await sendHttp(oauth2TokenRequest(oauth)));
+    const me = await sendPrepared(sendHttp, await prepareRequest(newRequest({ url: 'http://localhost:4545/me', auth: { ...oauth, token: token.token } }), {}));
+    assert.equal(JSON.parse(me.response.body).name, 'Asha');
+    // An RSA key in the older "BEGIN RSA PRIVATE KEY" form signs too, and Node accepts the signature.
+    const rsa = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const [h, p, sig] = (await signJwt({ type: 'jwt', algorithm: 'RS256', secret: rsa.privateKey.export({ type: 'pkcs1', format: 'pem' }) as string, secretBase64: false, payload: '{"a":1}', prefix: 'Bearer' })).split('.');
+    assert.ok(createVerify('RSA-SHA256').update(`${h}.${p}`).verify(rsa.publicKey, Buffer.from(sig, 'base64url')));
+    assert.throws(() => readOAuth2Token({ status: 401, statusText: '', headers: [], size: 0, timings: { total: 0 }, url: '', body: '{"error":"invalid_client"}' }), /invalid_client/);
   });
 
   await check('HTTP POST sends forbidden headers (Cookie, Origin, Host) and JSON body', async () => {

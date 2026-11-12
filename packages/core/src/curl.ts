@@ -1,4 +1,10 @@
-import { HTTP_METHODS, newRequest, type HttpMethod, type KeyValue, type RequestItem, type ResolvedRequest } from './types';
+import { HTTP_METHODS, newId, newRequest, type FileRef, type FormField, type HttpMethod, type KeyValue, type RequestItem, type ResolvedRequest } from './types';
+import { guessContentType } from './files';
+
+const fileFromPath = (path: string, contentType?: string): FileRef => {
+  const name = path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1) || path;
+  return { id: newId(), name, path, contentType: contentType || guessContentType(name) };
+};
 
 /** Split a shell command into argv, handling quotes, escapes and line continuations. */
 export function shellSplit(input: string): string[] {
@@ -73,6 +79,8 @@ export function parseCurl(command: string): CurlImport {
   const data: string[] = [];
   let forceGet = false;
   let user: string | null = null;
+  const fields: FormField[] = [];
+  let bodyFile: FileRef | null = null;
 
   for (let i = 1; i < argv.length; i++) {
     let arg = argv[i];
@@ -104,7 +112,7 @@ export function parseCurl(command: string): CurlImport {
       }
       case '-d': case '--data': case '--data-raw': case '--data-binary': case '--data-ascii': {
         const d = take();
-        if (d.startsWith('@')) warnings.push(`Body from file ${d.slice(1)} not imported`);
+        if (d.startsWith('@') && arg !== '--data-raw') bodyFile = fileFromPath(d.slice(1));
         else data.push(d);
         break;
       }
@@ -118,7 +126,19 @@ export function parseCurl(command: string): CurlImport {
       case '-b': case '--cookie': headers.push({ key: 'Cookie', value: take(), enabled: true }); break;
       case '-A': case '--user-agent': headers.push({ key: 'User-Agent', value: take(), enabled: true }); break;
       case '-e': case '--referer': headers.push({ key: 'Referer', value: take(), enabled: true }); break;
-      case '-F': case '--form': take(); warnings.push('Multipart (-F) fields are not supported yet and were skipped'); break;
+      case '-F': case '--form': {
+        const f = take();
+        const eq = f.indexOf('=');
+        const key = eq >= 0 ? f.slice(0, eq) : f;
+        const value = eq >= 0 ? f.slice(eq + 1) : '';
+        if (value.startsWith('@') || value.startsWith('<')) {
+          // name=@path;type=image/png;filename=x.png
+          const [path, ...opts] = value.slice(1).split(';');
+          const type = opts.find((o) => o.startsWith('type='))?.slice(5);
+          fields.push({ key, value: '', enabled: true, file: fileFromPath(path.replace(/^"|"$/g, ''), type) });
+        } else fields.push({ key, value: value.replace(/;type=[^;]+$/, '').replace(/^"|"$/g, ''), enabled: true });
+        break;
+      }
       case '--url': url = take(); break;
       case '-G': case '--get': forceGet = true; break;
       case '-I': case '--head': method = 'HEAD'; break;
@@ -129,7 +149,7 @@ export function parseCurl(command: string): CurlImport {
   }
   if (!url) throw new Error('No URL found in cURL command');
 
-  let finalMethod = (method ?? (data.length && !forceGet ? 'POST' : 'GET')) as HttpMethod;
+  let finalMethod = (method ?? ((data.length || fields.length || bodyFile) && !forceGet ? 'POST' : 'GET')) as HttpMethod;
   if (!HTTP_METHODS.includes(finalMethod)) {
     warnings.push(`Method ${finalMethod} not supported, using GET`);
     finalMethod = 'GET';
@@ -152,7 +172,12 @@ export function parseCurl(command: string): CurlImport {
     req.auth = { type: 'basic', username: idx >= 0 ? user.slice(0, idx) : user, password: idx >= 0 ? user.slice(idx + 1) : '' };
   }
 
-  if (data.length) {
+  if (fields.length) {
+    req.body = { mode: 'multipart', text: '', form: [], multipart: fields };
+    req.headers = headers.filter((h) => h.key.toLowerCase() !== 'content-type');
+  } else if (bodyFile) {
+    req.body = { mode: 'file', text: '', form: [], file: bodyFile };
+  } else if (data.length) {
     const text = data.join('&');
     const ctIdx = headers.findIndex((h) => h.key.toLowerCase() === 'content-type');
     const ct = ctIdx >= 0 ? headers[ctIdx].value.toLowerCase() : '';
@@ -189,6 +214,9 @@ export function toCurl(r: ResolvedRequest): string {
   // One flag and its value per line, so the command reads like the ones browsers copy.
   const parts = [r.method !== 'GET' ? `curl -X ${r.method} ${shq(r.url)}` : `curl ${shq(r.url)}`];
   for (const [k, v] of r.headers) parts.push(`-H ${shq(`${k}: ${v}`)}`);
-  if (r.body !== undefined && r.body !== '') parts.push(`--data-raw ${shq(r.body)}`);
+  if (r.multipart) {
+    for (const p of r.multipart) parts.push(`-F ${shq('file' in p ? `${p.name}=@${p.file.path ?? p.file.name}${p.file.contentType ? `;type=${p.file.contentType}` : ''}` : `${p.name}=${p.value}`)}`);
+  } else if (r.file) parts.push(`--data-binary ${shq(`@${r.file.path ?? r.file.name}`)}`);
+  else if (r.body !== undefined && r.body !== '') parts.push(`--data-raw ${shq(r.body)}`);
   return parts.join(' \\\n  ');
 }

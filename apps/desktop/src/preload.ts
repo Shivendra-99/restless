@@ -4,7 +4,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 const CHANNELS = new Set([
   'http:send', 'http:cancel',
   'mcp:connect', 'mcp:catalog', 'mcp:call', 'mcp:read', 'mcp:prompt', 'mcp:ping', 'mcp:disconnect',
-  'ws:load', 'ws:save', 'ws:location', 'ws:choose', 'file:save',
+  'ws:load', 'ws:save', 'ws:location', 'ws:choose', 'file:save', 'upload:pick', 'oauth:authorize',
   'capture:list', 'capture:entries', 'capture:delete', 'capture:import',
   'capture:browser-open', 'capture:browser-status', 'capture:browser-pause', 'capture:browser-new', 'capture:browser-clear',
 ]);

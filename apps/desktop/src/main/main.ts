@@ -1,7 +1,7 @@
 import { app, BaseWindow, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { CapturedEntry, CaptureSession, McpServerConfig, ResolvedRequest, Workspace } from '@restless/core';
+import { guessContentType, newId, type CapturedEntry, type CaptureSession, type FileRef, type McpServerConfig, type ResolvedRequest, type Workspace } from '@restless/core';
 import { CaptureBrowser, allowLocalCertificates } from './capture-browser';
 import { CaptureStore } from './capture-store';
 import { sendHttp } from './http-engine';
@@ -151,6 +151,60 @@ function registerIpc() {
   // Toolbar of the browser window; anything else sending this is ignored.
   ipcMain.on('browser:command', (e, cmd: string, arg?: unknown) => {
     if (browser.isToolbar(e.sender)) browser.command(String(cmd), arg);
+  });
+
+  ipcMain.handle('upload:pick', async (): Promise<FileRef | null> => {
+    const res = await dialog.showOpenDialog(win!, { title: 'Choose a file to send', properties: ['openFile'] });
+    const file = res.filePaths[0];
+    if (res.canceled || !file) return null;
+    const name = path.basename(file);
+    return { id: newId(), name, path: file, size: (await fs.stat(file)).size, contentType: guessContentType(name) };
+  });
+
+  // OAuth 2.0 sign-in: show the provider's page in its own window and hand back the address it redirects to.
+  ipcMain.handle('oauth:authorize', (_e, rawUrl: string, rawRedirect: string) => {
+    const start = new URL(String(rawUrl));
+    const redirectUri = String(rawRedirect);
+    if (start.protocol !== 'https:' && start.protocol !== 'http:') throw new Error('The authorization URL must start with https:// or http://');
+    if (!redirectUri) throw new Error('Enter the redirect URI');
+    return new Promise<string>((resolve, reject) => {
+      // Its own in-memory session: nothing from the sign-in page is kept after the app closes, and it shares nothing with the app.
+      const popup = new BrowserWindow({
+        width: 520,
+        height: 720,
+        parent: win ?? undefined,
+        title: 'Sign in',
+        autoHideMenuBar: true,
+        webPreferences: { partition: 'restless-oauth', sandbox: true, contextIsolation: true, nodeIntegration: false },
+      });
+      let done = false;
+      const finish = (url: string) => {
+        if (done || !url.startsWith(redirectUri)) return false;
+        done = true;
+        resolve(url);
+        setImmediate(() => !popup.isDestroyed() && popup.close());
+        return true;
+      };
+      for (const event of ['will-redirect', 'will-navigate'] as const) {
+        popup.webContents.on(event as 'will-redirect', (e, url) => {
+          if (finish(url)) e.preventDefault();
+        });
+      }
+      popup.webContents.setWindowOpenHandler(({ url }) => {
+        finish(url);
+        return { action: 'deny' };
+      });
+      popup.on('closed', () => {
+        if (!done) reject(new Error('The sign-in window was closed before it finished'));
+      });
+      popup.loadURL(start.toString()).catch((err: Error) => {
+        // Stopping the load at the redirect counts as an aborted load; that one is expected.
+        if (!done) {
+          reject(new Error(`Could not open the authorization URL (${err.message})`));
+          if (!popup.isDestroyed()) popup.close();
+        }
+      });
+    });
   });
 
   ipcMain.handle('ws:choose', async () => {

@@ -244,6 +244,34 @@ label.field .hint { color: var(--text-3); font-size: 12px; }
 .kv .input { width: 100%; height: 28px; font-family: var(--mono); font-size: 12.5px; }
 .kv tr.ghost .input { opacity: 0.6; }
 .kv tr.hl .input { border-color: var(--signal); }
+.kv-tools { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 26px; margin-bottom: 4px; }
+.kv-note { margin-right: auto; font-size: 12px; color: var(--ok); }
+.bulk { display: grid; gap: 8px; }
+.bulk .textarea { font-family: var(--mono); font-size: 12.5px; }
+/* Stays in view while the text scrolls, so Apply is always reachable in a short pane. */
+.bulk-foot { display: flex; align-items: center; gap: 8px; position: sticky; bottom: -1px; padding: 6px 0; background: var(--panel); }
+.bulk-status { margin-right: auto; font-size: 12.5px; color: var(--text-2); }
+.kv.multipart td.kind { width: 84px; }
+.kv.multipart .select { width: 100%; height: 28px; font-size: 12.5px; }
+.file-btn {
+  display: flex; align-items: center; gap: 10px; width: 100%; height: 28px; padding: 0 8px; cursor: pointer; text-align: left;
+  border: 1px dashed var(--line); border-radius: var(--r-sm); background: var(--panel); color: var(--text); font-size: 12.5px;
+}
+.file-btn:hover { border-color: var(--text-3); }
+.file-btn.gone { border-color: color-mix(in srgb, var(--warn) 60%, transparent); }
+.file-btn.gone .file-meta { color: var(--warn); }
+.file-name { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-meta { margin-left: auto; flex: none; color: var(--text-3); font-size: 12px; }
+.file-btn .file-meta:only-child { margin-left: 0; }
+.file-body { display: grid; gap: 10px; max-width: 520px; }
+.file-row { display: flex; gap: 6px; align-items: center; }
+.hint-line { margin: 0; font-size: 12px; color: var(--text-3); }
+label.check { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--text-2); cursor: pointer; }
+.token-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.token-status { font-size: 12.5px; }
+.token-status.ok { color: var(--ok); }
+.token-status.bad { color: var(--bad); }
+.auth-grid .textarea { font-family: var(--mono); font-size: 12.5px; }
 
 /* ---------- variables ---------- */
 .var-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 12px 8px; }
@@ -273,7 +301,7 @@ label.field .hint { color: var(--text-3); font-size: 12px; }
 .cap-var .input, .save-bar-name .input { color: var(--text); }
 .cap-cur { font-family: var(--mono); font-size: 12px; color: var(--text-2); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.body-modes { display: flex; gap: 14px; margin-bottom: 8px; font-size: 13px; color: var(--text-2); }
+.body-modes { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 8px; font-size: 13px; color: var(--text-2); }
 .body-modes label { display: flex; gap: 5px; align-items: center; cursor: pointer; }
 .auth-grid { display: grid; gap: 10px; max-width: 520px; }
 

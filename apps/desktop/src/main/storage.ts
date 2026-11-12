@@ -73,6 +73,7 @@ function fillRequest(r: RequestItem, collectionId: string): RequestItem {
   r.body ??= { mode: 'none', text: '', form: [] };
   r.body.form ??= [];
   r.body.text ??= '';
+  if (r.body.mode === 'multipart') r.body.multipart ??= [];
   r.auth ??= { type: 'none' };
   r.captures ??= [];
   return r;

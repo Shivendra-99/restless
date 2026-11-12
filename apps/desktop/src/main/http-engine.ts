@@ -3,7 +3,9 @@
 import http from 'node:http';
 import https from 'node:https';
 import zlib from 'node:zlib';
-import type { HttpResponse, HttpTimings, ResolvedRequest } from '@restless/core';
+import fs from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { fileContentType, type FileRef, type HttpResponse, type HttpTimings, type ResolvedRequest } from '@restless/core';
 
 const MAX_BODY = 50 * 1024 * 1024;
 const MAX_REDIRECTS = 10;
@@ -37,7 +39,37 @@ function decompress(buf: Buffer, encoding: string | undefined): Buffer {
 
 const TEXTUAL = /^(text\/|application\/(json|xml|javascript|x-www-form-urlencoded|graphql|ld\+json|problem\+json|[\w.+-]*\+(json|xml)))|charset=/i;
 
-function single(r: ResolvedRequest, opts: EngineOptions): Promise<{ res: HttpResponse; location?: string }> {
+async function readUpload(f: FileRef): Promise<Buffer> {
+  if (!f.path) throw new Error(`Choose the file "${f.name}" again: where it is on this computer isn't known`);
+  try {
+    return await fs.readFile(f.path);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    throw new Error(code === 'ENOENT' ? `The file to upload is no longer there: ${f.path}` : `Could not read the file to upload (${code ?? (e as Error).message}): ${f.path}`);
+  }
+}
+
+// Names and file names go inside quotes in a part's header, so quotes and line breaks are escaped the way browsers do it.
+const partName = (s: string) => s.replace(/\r?\n/g, '%0D%0A').replace(/"/g, '%22');
+
+/** Bytes for a file or multipart body, read fresh from disk. Undefined when the body is plain text (or absent). */
+export async function buildPayload(r: ResolvedRequest): Promise<{ bytes: Buffer; contentType?: string } | undefined> {
+  if (r.file) return { bytes: await readUpload(r.file) };
+  if (!r.multipart) return undefined;
+  const boundary = `----RestlessFormBoundary${randomBytes(12).toString('hex')}`;
+  const chunks: Buffer[] = [];
+  for (const p of r.multipart) {
+    let head = `--${boundary}\r\nContent-Disposition: form-data; name="${partName(p.name)}"`;
+    if ('file' in p) {
+      head += `; filename="${partName(p.file.name)}"\r\nContent-Type: ${fileContentType(p.file)}`;
+      chunks.push(Buffer.from(`${head}\r\n\r\n`, 'utf8'), await readUpload(p.file), Buffer.from('\r\n'));
+    } else chunks.push(Buffer.from(`${head}\r\n\r\n${p.value}\r\n`, 'utf8'));
+  }
+  chunks.push(Buffer.from(`--${boundary}--\r\n`));
+  return { bytes: Buffer.concat(chunks), contentType: `multipart/form-data; boundary=${boundary}` };
+}
+
+function single(r: ResolvedRequest, opts: EngineOptions, payload?: Buffer): Promise<{ res: HttpResponse; location?: string }> {
   return new Promise((resolve, reject) => {
     let url: URL;
     try {
@@ -63,7 +95,7 @@ function single(r: ResolvedRequest, opts: EngineOptions): Promise<{ res: HttpRes
     if (!Object.keys(headers).some((h) => h.toLowerCase() === 'accept')) headers['Accept'] = '*/*';
     if (!Object.keys(headers).some((h) => h.toLowerCase() === 'accept-encoding')) headers['Accept-Encoding'] = 'gzip, deflate, br';
 
-    const body = r.body !== undefined ? Buffer.from(r.body, 'utf8') : undefined;
+    const body = payload ?? (r.body !== undefined ? Buffer.from(r.body, 'utf8') : undefined);
     if (body && !Object.keys(headers).some((h) => h.toLowerCase() === 'content-length')) headers['Content-Length'] = String(body.length);
 
     const t0 = performance.now();
@@ -147,9 +179,15 @@ function single(r: ResolvedRequest, opts: EngineOptions): Promise<{ res: HttpRes
 /** Send a request, following redirects the way browsers do (303 and 301/302 on POST become GET). */
 export async function sendHttp(r: ResolvedRequest, opts: EngineOptions = {}): Promise<HttpResponse> {
   let current = r;
+  let payload: Buffer | undefined;
+  const built = await buildPayload(r);
+  if (built) {
+    payload = built.bytes;
+    if (built.contentType) current = { ...r, headers: [...r.headers.filter(([k]) => k.toLowerCase() !== 'content-type'), ['Content-Type', built.contentType]] };
+  }
   const started = performance.now();
   for (let hop = 0; ; hop++) {
-    const { res, location } = await single(current, opts);
+    const { res, location } = await single(current, opts, payload);
     const redirect = location && [301, 302, 303, 307, 308].includes(res.status) && current.followRedirects !== false;
     if (!redirect || hop >= MAX_REDIRECTS) {
       if (hop > 0) res.timings = { ...res.timings, total: performance.now() - started };
@@ -158,6 +196,7 @@ export async function sendHttp(r: ResolvedRequest, opts: EngineOptions = {}): Pr
     const next = new URL(location!, current.url).toString();
     const toGet = res.status === 303 || ((res.status === 301 || res.status === 302) && current.method === 'POST');
     const crossOrigin = new URL(next).origin !== new URL(current.url).origin;
+    if (toGet) payload = undefined;
     current = {
       ...current,
       url: next,

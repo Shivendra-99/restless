@@ -31,7 +31,10 @@ Downloads are on the [Releases page](https://github.com/Shivendra-99/restless/re
 
 API testing
 - Collections with folders, like Postman: create, rename, move requests between them (the "Saved in" picker above the request name), duplicate, delete, export
-- Requests with params, headers, JSON / text / urlencoded bodies, Bearer / Basic / API-key auth
+- Requests with params, headers, and JSON / text / urlencoded / multipart bodies
+- File uploads: files as multipart form fields, or one file as the whole body. On desktop only the file's path is kept and it is read again on every send
+- Bulk edit for params, headers and form fields: edit the list as `key: value` lines, or paste JSON, XML, a query string or a whole URL (pasting those into a key cell fills the table too)
+- Auth: API key, Bearer, Basic, Digest, JWT bearer (signed on every send), OAuth 1.0, OAuth 2.0 (client credentials, password, authorization code with PKCE on desktop), Hawk and AWS Signature v4
 - Global variables, usable anywhere as `{{name}}`, plus environments (an active environment's value wins over a global with the same name) and dynamic values (`{{$uuid}}`, `{{$timestamp}}`, `{{$isoTimestamp}}`, `{{$randomInt}}`)
 - Save from response, no scripts: click any value in a JSON response (or Save on a response header), name it, done. Tick "Update it every time this request is sent" and the variable refreshes on every 2xx response, so a login request keeps `{{access_token}}` current for every other request. Rules are listed and editable in the request's "Save to variables" tab
 - Every request shows the variables it uses with their current values; a missing one is red and opens the Variables window ready to fill
@@ -106,7 +109,7 @@ pnpm dev:desktop          # build + launch the Electron app
 pnpm build:extension      # then chrome://extensions → Developer mode → Load unpacked → apps/extension/dist
                           # (Edge: edge://extensions, same steps)
 
-pnpm api:demo             # demo API on http://localhost:4545  (/users, POST /auth/token, /me, /echo, /slow, /redirect)
+pnpm api:demo             # demo API on http://localhost:4545  (/users, POST /auth/token, /me, /echo, /upload, /digest, POST /oauth/token, /slow, /redirect)
                           # token flow: POST /auth/token with {"username":"asha","password":"secret"},
                           # click data.access_token in the response, then call /me with Bearer {{access_token}}
 pnpm capture:demo         # a small web app on http://localhost:5555 that calls its own API; open it under Capture

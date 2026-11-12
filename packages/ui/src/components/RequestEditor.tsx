@@ -1,6 +1,8 @@
 import { useMemo, useState, type ClipboardEvent } from 'react';
-import { HTTP_METHODS, newId, parseCurl, usedVariables, type BodyMode, type Capture, type HttpMethod, type RequestItem, type VariableInfo } from '@restless/core';
+import { AUTH_LABELS, HTTP_METHODS, newId, parseCurl, usedVariables, type BodyMode, type Bridge, type Capture, type HttpMethod, type RequestItem, type VariableInfo } from '@restless/core';
 import { KeyValueTable } from './KeyValueTable';
+import { AuthEditor } from './AuthEditor';
+import { FileBody, MultipartTable } from './FilePicker';
 import { tryPrettyJson } from '../util';
 
 export interface Location {
@@ -19,7 +21,11 @@ interface Props {
   onOpenVariable: (name: string) => void;
   locations: Location[];
   onNotice: (text: string) => void;
+  bridge: Bridge;
+  saveGlobal: (name: string, value: string) => void;
 }
+
+const BODY_LABELS: Record<BodyMode, string> = { none: 'None', json: 'JSON', text: 'Text', 'form-urlencoded': 'Form', multipart: 'Multipart', file: 'File' };
 
 type Tab = 'params' | 'headers' | 'body' | 'auth' | 'save';
 
@@ -49,7 +55,7 @@ function VariableChips({ names, vars, onOpen }: { names: string[]; vars: Map<str
   );
 }
 
-export function RequestEditor({ item, onChange, onSend, sending, onCancel, vars, onOpenVariable, locations, onNotice }: Props) {
+export function RequestEditor({ item, onChange, onSend, sending, onCancel, vars, onOpenVariable, locations, onNotice, bridge, saveGlobal }: Props) {
   const [tab, setTab] = useState<Tab>(item.body.mode !== 'none' ? 'body' : 'params');
   const used = useMemo(() => usedVariables(item), [item]);
   const set = (patch: Partial<RequestItem>) => onChange({ ...item, ...patch });
@@ -135,30 +141,33 @@ export function RequestEditor({ item, onChange, onSend, sending, onCancel, vars,
             {t === 'save' ? 'Save to variables' : t[0].toUpperCase() + t.slice(1)}
             {t === 'params' && counts.params > 0 && <span className="count">{counts.params}</span>}
             {t === 'headers' && counts.headers > 0 && <span className="count">{counts.headers}</span>}
-            {t === 'body' && item.body.mode !== 'none' && <span className="count">{item.body.mode}</span>}
-            {t === 'auth' && item.auth.type !== 'none' && <span className="count">{item.auth.type}</span>}
+            {t === 'body' && item.body.mode !== 'none' && <span className="count">{BODY_LABELS[item.body.mode]}</span>}
+            {t === 'auth' && item.auth.type !== 'none' && <span className="count">{AUTH_LABELS[item.auth.type]}</span>}
             {t === 'save' && (item.captures?.length ?? 0) > 0 && <span className="count">{item.captures!.length}</span>}
           </button>
         ))}
       </div>
       <div className="pane-body">
-        {tab === 'params' && <KeyValueTable label="Query params" rows={item.params} onChange={(params) => set({ params })} />}
-        {tab === 'headers' && <KeyValueTable label="Headers" rows={item.headers} onChange={(headers) => set({ headers })} />}
-        {tab === 'body' && <BodyEditor item={item} set={set} />}
-        {tab === 'auth' && <AuthEditor item={item} set={set} />}
+        {tab === 'params' && <KeyValueTable label="Query params" noun="param" bulk rows={item.params} onChange={(params) => set({ params })} />}
+        {tab === 'headers' && <KeyValueTable label="Headers" noun="header" bulk rows={item.headers} onChange={(headers) => set({ headers })} />}
+        {tab === 'body' && <BodyEditor item={item} set={set} bridge={bridge} />}
+        {tab === 'auth' && <AuthEditor item={item} set={set} bridge={bridge} vars={vars} saveGlobal={saveGlobal} />}
         {tab === 'save' && <CapturesEditor item={item} set={set} vars={vars} />}
       </div>
     </div>
   );
 }
 
-function BodyEditor({ item, set }: { item: RequestItem; set: (p: Partial<RequestItem>) => void }) {
+function BodyEditor({ item, set, bridge }: { item: RequestItem; set: (p: Partial<RequestItem>) => void; bridge: Bridge }) {
   const modes: { id: BodyMode; label: string }[] = [
     { id: 'none', label: 'None' },
     { id: 'json', label: 'JSON' },
     { id: 'text', label: 'Text' },
     { id: 'form-urlencoded', label: 'Form (urlencoded)' },
+    { id: 'multipart', label: 'Form with files (multipart)' },
+    { id: 'file', label: 'File' },
   ];
+  const noBody = item.method === 'GET' || item.method === 'HEAD';
   const b = item.body;
   const jsonInvalid = b.mode === 'json' && b.text.trim() !== '' && !b.text.includes('{{') && tryPrettyJson(b.text) === null;
   return (
@@ -196,75 +205,12 @@ function BodyEditor({ item, set }: { item: RequestItem; set: (p: Partial<Request
           {jsonInvalid && <div className="notice warn" style={{ margin: '6px 0 0' }}>This is not valid JSON yet. It will still be sent as typed.</div>}
         </>
       )}
-      {b.mode === 'form-urlencoded' && <KeyValueTable label="Form fields" rows={b.form} onChange={(form) => set({ body: { ...b, form } })} />}
+      {b.mode === 'form-urlencoded' && <KeyValueTable label="Form fields" noun="field" bulk rows={b.form} onChange={(form) => set({ body: { ...b, form } })} />}
+      {b.mode === 'multipart' && <MultipartTable bridge={bridge} rows={b.multipart ?? []} onChange={(multipart) => set({ body: { ...b, multipart } })} />}
+      {b.mode === 'file' && <FileBody bridge={bridge} file={b.file} onChange={(file) => set({ body: { ...b, file } })} />}
+      {b.mode !== 'none' && noBody && <div className="notice warn" style={{ margin: '8px 0 0' }}>{item.method} requests are sent without a body. Switch the method to POST, PUT or PATCH to send this.</div>}
       {b.mode === 'none' && <p style={{ color: 'var(--text-3)', margin: 0 }}>This request has no body.</p>}
     </>
-  );
-}
-
-function AuthEditor({ item, set }: { item: RequestItem; set: (p: Partial<RequestItem>) => void }) {
-  const a = item.auth;
-  return (
-    <div className="auth-grid">
-      <label className="field">
-        Type
-        <select
-          className="select"
-          aria-label="Auth type"
-          value={a.type}
-          onChange={(e) => {
-            const t = e.target.value;
-            if (t === 'none') set({ auth: { type: 'none' } });
-            if (t === 'bearer') set({ auth: { type: 'bearer', token: '' } });
-            if (t === 'basic') set({ auth: { type: 'basic', username: '', password: '' } });
-            if (t === 'apikey') set({ auth: { type: 'apikey', key: 'X-API-Key', value: '', in: 'header' } });
-          }}
-        >
-          <option value="none">No auth</option>
-          <option value="bearer">Bearer token</option>
-          <option value="basic">Basic auth</option>
-          <option value="apikey">API key</option>
-        </select>
-      </label>
-      {a.type === 'bearer' && (
-        <label className="field">
-          Token
-          <input className="input mono" aria-label="Token" value={a.token} placeholder="{{token}}" onChange={(e) => set({ auth: { ...a, token: e.target.value } })} />
-          <span className="hint">Tip: send your login request, click the token in its response and save it as a variable. Then use it here as {'{{access_token}}'}.</span>
-        </label>
-      )}
-      {a.type === 'basic' && (
-        <>
-          <label className="field">
-            Username
-            <input className="input mono" value={a.username} onChange={(e) => set({ auth: { ...a, username: e.target.value } })} />
-          </label>
-          <label className="field">
-            Password
-            <input className="input mono" type="password" value={a.password} onChange={(e) => set({ auth: { ...a, password: e.target.value } })} />
-          </label>
-        </>
-      )}
-      {a.type === 'apikey' && (
-        <>
-          <label className="field">
-            Key
-            <input className="input mono" value={a.key} onChange={(e) => set({ auth: { ...a, key: e.target.value } })} />
-          </label>
-          <label className="field">
-            Value
-            <input className="input mono" value={a.value} placeholder="{{apiKey}}" onChange={(e) => set({ auth: { ...a, value: e.target.value } })} />
-          </label>
-          <label className="field">
-            Send in
-            <select className="select" value={a.in} onChange={(e) => set({ auth: { ...a, in: e.target.value as 'header' | 'query' } })}>
-              <option value="header">Header</option>
-              <option value="query">Query param</option>
-            </select>
-          </label>
-        </>
-      )}
-    </div>
   );
 }
 
